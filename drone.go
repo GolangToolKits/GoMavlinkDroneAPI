@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/mavlink/MAVSDK-Go/Sources/action"
+	"github.com/mavlink/MAVSDK-Go/Sources/camera"
 	"github.com/mavlink/MAVSDK-Go/Sources/core"
 	"github.com/mavlink/MAVSDK-Go/Sources/geofence"
 	"github.com/mavlink/MAVSDK-Go/Sources/telemetry"
@@ -18,6 +19,7 @@ type Drone struct {
 	core         core.ServiceImpl
 	telemetry    telemetry.ServiceImpl
 	geofence     geofence.ServiceImpl
+	camera       camera.ServiceImpl
 }
 
 // Connect Starts a mavsdk server and create a connection to it
@@ -39,11 +41,14 @@ func (s *Drone) InitPlugins(cc *grpc.ClientConn) {
 	s.action = action.ServiceImpl{
 		Client: action.NewActionServiceClient(cc),
 	}
-	s.action = action.ServiceImpl{
-		Client: action.NewActionServiceClient(cc),
-	}
+	// s.action = action.ServiceImpl{
+	// 	Client: action.NewActionServiceClient(cc),
+	// }
 	s.geofence = geofence.ServiceImpl{
 		Client: geofence.NewGeofenceServiceClient(cc),
+	}
+	s.camera = camera.ServiceImpl{
+		Client: camera.NewCameraServiceClient(cc),
 	}
 }
 
