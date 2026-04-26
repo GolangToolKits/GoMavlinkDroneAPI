@@ -20,9 +20,6 @@ import (
 
 type Drone struct {
 	node *gomavlib.Node
-	// baud        int
-	// device      string
-	// outSystemID int
 }
 
 // Connect create a node which communicates with a serial endpoint.

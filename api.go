@@ -13,6 +13,8 @@ type API interface {
 	ConnectTCPClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error
 	ConnectCustomClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error
 	ConnectCustomServer(listenAddress string, outVersion gomavlib.Version, outSystemID byte) error
+	ListenToDroneEvents() chan gomavlib.Event
+	IsDroneConnected() bool
 	Close()
 	// Arm() (*action.ArmResponse, error)
 	// Takeoff() (*action.TakeoffResponse, error)
