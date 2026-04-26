@@ -231,6 +231,12 @@ func (s *Drone) Close() {
 
 func ensureCertsExist() error {
 	// Check if cert.pem exists
+	// c, err := os.Stat("certs/cert.pem")
+	// if err != nil {
+	// 	fmt.Println("cert.pem not found. Generating certificates...")
+	// } else {
+	// 	fmt.Println(c)
+	// }
 	if _, err := os.Stat("certs/cert.pem"); os.IsNotExist(err) {
 		fmt.Println("cert.pem not found. Generating certificates...")
 		return generateCertAndKey()

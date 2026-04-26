@@ -1,0 +1,6 @@
+{
+    "go.toolsEnvVars": {
+        "CGO_CFLAGS": "",
+        "CGO_LDFLAGS": ""
+    }
+}
