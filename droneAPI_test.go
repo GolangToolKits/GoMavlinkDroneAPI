@@ -29,7 +29,8 @@ func TestDroneAPI_ConnectSerial(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectSerial(tt.serialDevice, tt.baud, tt.outSystemID)
 			if tt.testHeartBeat {
 				con := s.IsDroneConnected()
@@ -72,7 +73,8 @@ func TestDroneAPI_ConnectUDPServer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectUDPServer(tt.serverAddress, tt.outVersion, tt.outSystemID)
 			if gotErr != nil {
 				if !tt.wantErr {
@@ -108,7 +110,8 @@ func TestDroneAPI_ConnectUDPClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectUDPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
 			if gotErr != nil {
 				if !tt.wantErr {
@@ -144,7 +147,8 @@ func TestDroneAPI_ConnectUDPBroadcast(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectUDPBroadcast(tt.broadcastAddress, tt.outVersion, tt.outSystemID)
 			if gotErr != nil {
 				if !tt.wantErr {
@@ -180,7 +184,8 @@ func TestDroneAPI_ConnectTCPServer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectTCPServer(tt.serverAddress, tt.outVersion, tt.outSystemID)
 			if gotErr != nil {
 				if !tt.wantErr {
@@ -216,7 +221,8 @@ func TestDroneAPI_ConnectTCPClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectTCPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
 			if gotErr != nil {
 				if !tt.wantErr {
@@ -252,8 +258,10 @@ func TestDroneAPI_ConnectCustomClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectCustomClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			s.Close()
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ConnectCustomClient() failed: %v", gotErr)
@@ -288,7 +296,8 @@ func TestDroneAPI_ConnectCustomServer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
-			var s gomavlinkdroneapi.DroneAPI
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
 			gotErr := s.ConnectCustomServer(tt.listenAddress, tt.outVersion, tt.outSystemID)
 			if gotErr != nil {
 				if !tt.wantErr {
