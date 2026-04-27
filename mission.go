@@ -1,71 +1,187 @@
 package gomavlinkdroneapi
 
 import (
+	"errors"
+	"fmt"
 	"log"
+	"time"
 
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
+	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
-func (s *DroneAPI) UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool {
+// UploadMission
+// examples
+//
+//	var missionItems = []common.MessageMissionItemInt{
+//			{
+//				TargetSystem:    1,
+//				TargetComponent: 1,
+//				Seq:             0,
+//				Frame:           common.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+//				Command:         common.MAV_CMD_NAV_TAKEOFF,
+//				Current:         1,
+//				Autocontinue:    1,
+//				Param7:          10, // Take off to 10 meters
+//			},
+//			{
+//				TargetSystem:    1,
+//				TargetComponent: 1,
+//				Seq:             1,
+//				Frame:           common.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+//				Command:         common.MAV_CMD_NAV_WAYPOINT,
+//				Current:         0,
+//				Autocontinue:    1,
+//				X:               473977418, // Latitude * 1e7
+//				Y:               85443833,  // Longitude * 1e7
+//				Param7:          15,        // Altitude (meters)
+//			},
+//		}
+func (s *DroneAPI) UploadMission(missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool {
 	var rtn bool
-	targetSysId := uint8(1)
-	targetCompId := uint8(1)
 
-	// Step 1: Tell the drone how many items we are uploading
-	log.Println("Sending mission count...")
-	s.drone.node.WriteMessageTo(droneChannel, &ardupilotmega.MessageMissionCount{
-		TargetSystem:    targetSysId,
-		TargetComponent: targetCompId,
-		Count:           uint16(len(mission)),
-		MissionType:     ardupilotmega.MAV_MISSION_TYPE_MISSION,
-	})
+	totalItems := uint16(len(missionItems))
 
-	// Step 2 & 3: Listen for requests and answer them
+	// 3. Start the upload by sending MISSION_COUNT
+	countMsg := &common.MessageMissionCount{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+		Count:           totalItems,
+		MissionType:     common.MAV_MISSION_TYPE_MISSION,
+	}
+	s.drone.node.WriteMessageAll(countMsg)
+	log.Printf("Sent MISSION_COUNT: %d waypoints\n", totalItems)
+
+	// 4. Handle incoming requests from the drone
 	for evt := range s.drone.node.Events() {
 		if frm, ok := evt.(*gomavlib.EventFrame); ok {
-
 			switch msg := frm.Message().(type) {
 
-			case *ardupilotmega.MessageMissionRequest:
+			// The drone is requesting a specific item
+			case *common.MessageMissionRequestInt:
+				if msg.Seq < totalItems {
+					item := missionItems[msg.Seq]
+					s.drone.node.WriteMessageAll(&item)
+					fmt.Printf("Uploaded waypoint #%d\n", msg.Seq)
+				}
+
+			case *common.MessageMissionRequest:
+				// fmt.Println("Drone requested MISSION_ITEM instead of MISSION_ITEM_INT. You must convert float coords.")
 				seq := msg.Seq
-				if int(seq) < len(mission) {
+				if int(seq) < len(missionItems) {
 					log.Printf("Uploading item %d...\n", seq)
 
-					itemToSend := mission[seq]
-					itemToSend.TargetSystem = targetSysId
-					itemToSend.TargetComponent = targetCompId
+					itemToSend := missionItems[seq]
+					itemToSend.TargetSystem = targetSystem
+					itemToSend.TargetComponent = targetComponent
 
 					// Respond directly back to the specific channel requesting it
 					s.drone.node.WriteMessageTo(frm.Channel, &itemToSend) // Use frm.Channel
 				}
-
-			case *ardupilotmega.MessageMissionAck:
-				if msg.Type == ardupilotmega.MAV_MISSION_ACCEPTED {
-					log.Println("Mission successfully uploaded and accepted!")
+			// Handshake successful
+			case *common.MessageMissionAck:
+				if msg.Type == common.MAV_MISSION_ACCEPTED {
+					fmt.Println("Mission uploaded and ACCEPTED by the drone!")
 					rtn = true
 				} else {
-					log.Printf("Mission rejected with error code: %d\n", msg.Type)
+					log.Printf("Mission rejected by drone! Code: %d", msg.Type)
 				}
-
 			}
 		}
 	}
 	return rtn
 }
 
-func (s *DroneAPI) GetDroneChannel() *gomavlib.Channel {
-	// Wait for the drone to send a heartbeat so we can capture its Channel
-	log.Println("Waiting for heartbeat...")
-	var droneChannel *gomavlib.Channel
+func (s *DroneAPI) DownloadMissions(targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error) {
 
-	for evt := range s.drone.node.Events() {
-		if frm, ok := evt.(*gomavlib.EventFrame); ok {
-			if _, isHeartbeat := frm.Message().(*ardupilotmega.MessageHeartbeat); isHeartbeat {
-				droneChannel = frm.Channel // Captured the actual communication channel!
-				break
+	var totalItems uint16
+	var currentRequested uint16
+	missionItems := make(map[uint16]*ardupilotmega.MessageMissionItemInt)
+
+	log.Println("Requesting mission list from drone...")
+	s.drone.node.WriteMessageAll(
+		&ardupilotmega.MessageMissionRequestList{
+			TargetSystem:    targetSystem,
+			TargetComponent: targetComponent,
+		},
+	)
+
+	// 1. Create a timer that resets whenever we get data
+	timeoutDuration := 5 * time.Second
+	timer := time.NewTimer(timeoutDuration)
+	defer timer.Stop()
+
+	// 2. Continuous loop with a select statement
+	for {
+		select {
+		// Branch A: We received an event from gomavlib
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				log.Println("Node events channel closed.")
+				return nil, nil
 			}
+
+			switch e := evt.(type) {
+			case *gomavlib.EventFrame:
+				switch msg := e.Message().(type) {
+
+				case *ardupilotmega.MessageMissionCount:
+					// Data received! Reset the timeout timer
+					if !timer.Stop() {
+						<-timer.C
+					}
+					timer.Reset(timeoutDuration)
+
+					totalItems = msg.Count
+					log.Printf("Drone reported %d items. Starting download...", totalItems)
+
+					if totalItems == 0 {
+						log.Println("No mission items to download.")
+						return nil, nil
+					}
+
+					currentRequested = 0
+					s.drone.node.WriteMessageTo(e.Channel, &ardupilotmega.MessageMissionRequestInt{
+						TargetSystem:    targetSystem,
+						TargetComponent: targetComponent,
+						Seq:             currentRequested,
+					})
+
+				case *ardupilotmega.MessageMissionItemInt:
+					// Data received! Reset the timeout timer
+					if !timer.Stop() {
+						<-timer.C
+					}
+					timer.Reset(timeoutDuration)
+
+					log.Printf("Received item #%d", msg.Seq)
+					missionItems[msg.Seq] = msg
+
+					if uint16(len(missionItems)) == totalItems {
+						log.Println("All items received successfully!")
+
+						s.drone.node.WriteMessageTo(e.Channel, &ardupilotmega.MessageMissionAck{
+							TargetSystem:    targetSystem,
+							TargetComponent: targetComponent,
+							Type:            ardupilotmega.MAV_MISSION_ACCEPTED,
+						})
+						return missionItems, nil
+					}
+
+					currentRequested++
+					s.drone.node.WriteMessageTo(e.Channel, &ardupilotmega.MessageMissionRequestInt{
+						TargetSystem:    targetSystem,
+						TargetComponent: targetComponent,
+						Seq:             currentRequested,
+					})
+				}
+			}
+
+		// Branch B: No data was received before the timer fired
+		case <-timer.C:
+			log.Printf("Timeout! Drone failed to respond within %v. Aborting.", timeoutDuration)
+			return nil, errors.New("Timeed out before the missions could be downloaded ")
 		}
 	}
-	return droneChannel
 }

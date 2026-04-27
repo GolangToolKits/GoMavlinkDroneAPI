@@ -17,8 +17,9 @@ type API interface {
 	ConnectCustomServer(listenAddress string, outVersion gomavlib.Version, outSystemID byte) error
 	ListenToDroneEvents() chan gomavlib.Event
 	IsDroneConnected() (bool, error)
-	UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool
-	GetDroneChannel() *gomavlib.Channel
+	// UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool
+	UploadMission(missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool
+	// GetDroneChannel() *gomavlib.Channel
 	Close()
 	ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error
 	Takeoff(takeOffCommand *common.MessageCommandLong) error
