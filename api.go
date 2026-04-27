@@ -2,6 +2,7 @@ package gomavlinkdroneapi
 
 import (
 	"github.com/bluenviron/gomavlib/v3"
+	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
 )
 
 type API interface {
@@ -15,8 +16,10 @@ type API interface {
 	ConnectCustomServer(listenAddress string, outVersion gomavlib.Version, outSystemID byte) error
 	ListenToDroneEvents() chan gomavlib.Event
 	IsDroneConnected() bool
+	UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool
+	GetDroneChannel() *gomavlib.Channel
 	Close()
-	// Arm() (*action.ArmResponse, error)
+	ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error
 	// Takeoff() (*action.TakeoffResponse, error)
 	// Land() (*action.LandResponse, error)
 	// ConnectionState() (<-chan *core.ConnectionState, error)
