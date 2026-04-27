@@ -54,7 +54,7 @@ func (s *DroneAPI) ConnectTCPServer(serverAddress string, outVersion gomavlib.Ve
 	// outVersion: out version -> gomavlib.V2 or change to V1 if you're unable to communicate with the target
 	// outSystemID: output system ID -> 10
 	s.drone = &Drone{}
-	return s.ConnectTCPServer(serverAddress, outVersion, outSystemID)
+	return s.drone.ConnectTCPServer(serverAddress, outVersion, outSystemID)
 }
 
 func (s *DroneAPI) ConnectTCPClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error {
