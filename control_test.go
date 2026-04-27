@@ -1,13 +1,15 @@
 package gomavlinkdroneapi_test
 
 import (
+	"fmt"
 	"testing"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
 	"github.com/bluenviron/gomavlib/v3"
+	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
-func TestDroneAPI_ArmDisarm(t *testing.T) {
+func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		//imputs for UDPClient node
@@ -19,7 +21,10 @@ func TestDroneAPI_ArmDisarm(t *testing.T) {
 		disarmCommand   float32
 		targetSystem    uint8
 		targetComponent uint8
-		wantErr         bool
+
+		checkConnect bool
+		checkArm     bool
+		wantErr      bool
 	}{
 		// TODO: Add test cases.
 		{
@@ -28,7 +33,9 @@ func TestDroneAPI_ArmDisarm(t *testing.T) {
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			// commands
+			checkConnect:    false,
 			armCommand:      1,
+			checkArm:        false,
 			disarmCommand:   0,
 			targetSystem:    1,
 			targetComponent: 1,
@@ -47,6 +54,14 @@ func TestDroneAPI_ArmDisarm(t *testing.T) {
 				}
 				return
 			}
+			if tt.checkConnect {
+				con, err := s.IsDroneConnected()
+				if !con {
+					fmt.Print(err)
+					t.Fatal("ConnectSerial() succeeded not connected")
+				}
+				return
+			}
 			armErr := s.ArmDisarm(tt.armCommand, tt.targetSystem, tt.targetComponent)
 			if armErr != nil {
 				if !tt.wantErr {
@@ -54,6 +69,14 @@ func TestDroneAPI_ArmDisarm(t *testing.T) {
 				}
 				return
 			}
+			if tt.checkArm {
+				armed := s.AcknowledgeCommand(common.MAV_CMD_COMPONENT_ARM_DISARM)
+				if !armed {
+					t.Fatal("Arm() failed")
+				}
+				return
+			}
+
 			disarmErr := s.ArmDisarm(tt.disarmCommand, tt.targetSystem, tt.targetComponent)
 			if disarmErr != nil {
 				if !tt.wantErr {

@@ -3,6 +3,7 @@ package gomavlinkdroneapi
 import (
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
+	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
 type API interface {
@@ -15,14 +16,14 @@ type API interface {
 	ConnectCustomClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error
 	ConnectCustomServer(listenAddress string, outVersion gomavlib.Version, outSystemID byte) error
 	ListenToDroneEvents() chan gomavlib.Event
-	IsDroneConnected() bool
+	IsDroneConnected() (bool, error)
 	UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool
 	GetDroneChannel() *gomavlib.Channel
 	Close()
 	ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error
-	// Takeoff() (*action.TakeoffResponse, error)
-	// Land() (*action.LandResponse, error)
-	// ConnectionState() (<-chan *core.ConnectionState, error)
+	Takeoff(takeOffCommand *common.MessageCommandLong) error
+	Land(landCommand *common.MessageCommandLong) error
+	AcknowledgeCommand(commandToCheck common.MAV_CMD) bool
 	// UploadGeofence(geofenceData *geofence.GeofenceData) (*geofence.UploadGeofenceResponse, error)
 }
 

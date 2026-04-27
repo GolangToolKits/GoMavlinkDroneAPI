@@ -33,7 +33,7 @@ func TestDroneAPI_ConnectSerial(t *testing.T) {
 			s := ss.New()
 			gotErr := s.ConnectSerial(tt.serialDevice, tt.baud, tt.outSystemID)
 			if tt.testHeartBeat {
-				con := s.IsDroneConnected()
+				con, _ := s.IsDroneConnected()
 				if !con {
 					t.Fatal("ConnectSerial() succeeded not connected")
 				}

@@ -2,10 +2,12 @@ package gomavlinkdroneapi
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
 	"github.com/bluenviron/gomavlib/v3"
+	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
 )
 
 type DroneAPI struct {
@@ -84,18 +86,6 @@ func (s *DroneAPI) ConnectCustomServer(listenAddress string, outVersion gomavlib
 	return s.drone.ConnectCustomServer(listenAddress, outVersion, outSystemID)
 }
 
-// func (s *DroneAPI) Arm() (*action.ArmResponse, error) {
-// 	// ar, err := s.Drone.action.Arm(context.Background())
-// 	// return ar, err
-// 	return nil, nil
-// }
-
-// func (s *DroneAPI) Takeoff() (*action.TakeoffResponse, error) {
-// 	// tr, err := s.Drone.action.Takeoff(context.Background())
-// 	// return tr, err
-// 	return nil, nil
-// }
-
 // func (s *DroneAPI) Land() (*action.LandResponse, error) {
 // 	// lr, err := s.Drone.action.Land(context.Background())
 // 	// return lr, err
@@ -114,40 +104,41 @@ func (s *DroneAPI) ConnectCustomServer(listenAddress string, outVersion gomavlib
 // 	return nil, nil
 // }
 
-func (s *DroneAPI) IsDroneConnected() bool {
+// IsDroneConnected checks to see if drone is connected
+func (s *DroneAPI) IsDroneConnected() (bool, error) {
 
-	log.Println("Node started. Waiting for drone heartbeat...")
+	log.Println("Is Drone connected, Waiting for drone heartbeat...")
 
-	// Create a context that times out after 10 seconds
+	// 10-second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	connected := false
-
-	// Loop through events until we find a heartbeat or the timeout expires
 	for {
 		select {
 		case <-ctx.Done():
-			log.Fatal("Connection failed: No heartbeat received from drone.")
+			// DO NOT use log.Fatal here. Let the caller handle the error.
+			log.Println("Connection failed: No heartbeat received from drone.")
+			return false, ctx.Err() // Returns context.DeadlineExceeded
+
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				log.Fatal("Event channel closed.")
+				return false, errors.New("event channel closed unexpectedly")
 			}
 
-			if frm, ok := evt.(*gomavlib.EventFrame); ok {
-				// Check if the message is a HEARTBEAT (Message ID 0)
-				if frm.Message().GetID() == 0 {
-					log.Printf("🎉 Success! Drone connected. System ID: %d", frm.SystemID())
-					connected = true
-					break
-				}
+			// Ensure the event is a frame
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok {
+				continue // Skip other event types like EventChannelOpen
+			}
+
+			// Type assertion check for Heartbeat instead of ID == 0
+			switch msg := frm.Message().(type) {
+			case *ardupilotmega.MessageHeartbeat:
+				log.Printf("🎉 Success! Drone connected. System ID: %d, Autopilot: %d", frm.SystemID(), msg.Autopilot)
+				return true, nil
 			}
 		}
-		if connected {
-			break
-		}
 	}
-	return connected
 }
 
 func (s *DroneAPI) ListenToDroneEvents() chan gomavlib.Event {
