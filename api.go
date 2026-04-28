@@ -19,16 +19,20 @@ type API interface {
 	ConnectCustomServer(listenAddress string, outVersion gomavlib.Version, outSystemID byte) error
 
 	IsDroneConnected() (bool, error)
+
 	Close()
+
+	//Get Connected Vehicle ids
+	GetConnectedVehicle() (targetSystem byte, targetComponent byte)
 
 	// listen to the vehicle
 	ListenToDroneEvents() chan gomavlib.Event
 
 	//upload missions to the vehicle
 	// UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool
-	UploadMission(missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool
+	UploadMission(missionItems *[]ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool
 	DownloadMissions(targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error)
-	OverrideMissionHover(command *common.MessageCommandLong) error
+	OverrideMissionAndHover(command *common.MessageCommandLong) error
 	GetDroneChannel() *gomavlib.Channel
 
 	// flying the vehicle
@@ -39,7 +43,8 @@ type API interface {
 	ReturnHome(rtlCommand *common.MessageCommandLong) error
 	AcknowledgeCommand(commandToCheck common.MAV_CMD) bool
 
-	// UploadGeofence(geofenceData *geofence.GeofenceData) (*geofence.UploadGeofenceResponse, error)
+	ClearGeofence(targetSystem uint8, targetComponent uint8) bool
+	UploadGeofence(newFence []GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
 }
 
 // go mod init github.com/GolangToolKits/GoMavlinkDroneAPI

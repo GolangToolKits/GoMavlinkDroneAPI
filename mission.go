@@ -38,10 +38,10 @@ import (
 //				Param7:          15,        // Altitude (meters)
 //			},
 //		}
-func (s *DroneAPI) UploadMission(missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool {
+func (s *DroneAPI) UploadMission(missionItems *[]ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool {
 	var rtn bool
 
-	totalItems := uint16(len(missionItems))
+	totalItems := uint16(len(*missionItems))
 
 	// 3. Start the upload by sending MISSION_COUNT
 	countMsg := &common.MessageMissionCount{
@@ -61,7 +61,7 @@ func (s *DroneAPI) UploadMission(missionItems []ardupilotmega.MessageMissionItem
 			// The drone is requesting a specific item
 			case *common.MessageMissionRequestInt:
 				if msg.Seq < totalItems {
-					item := missionItems[msg.Seq]
+					item := (*missionItems)[msg.Seq]
 					s.drone.node.WriteMessageAll(&item)
 					fmt.Printf("Uploaded waypoint #%d\n", msg.Seq)
 				}
@@ -69,10 +69,10 @@ func (s *DroneAPI) UploadMission(missionItems []ardupilotmega.MessageMissionItem
 			case *common.MessageMissionRequest:
 				// fmt.Println("Drone requested MISSION_ITEM instead of MISSION_ITEM_INT. You must convert float coords.")
 				seq := msg.Seq
-				if int(seq) < len(missionItems) {
+				if int(seq) < len(*missionItems) {
 					log.Printf("Uploading item %d...\n", seq)
 
-					itemToSend := missionItems[seq]
+					itemToSend := (*missionItems)[seq]
 					itemToSend.TargetSystem = targetSystem
 					itemToSend.TargetComponent = targetComponent
 
@@ -184,4 +184,21 @@ func (s *DroneAPI) DownloadMissions(targetSystem uint8, targetComponent uint8) (
 			return nil, errors.New("Timeed out before the missions could be downloaded ")
 		}
 	}
+}
+
+// Prepare the MAV_CMD_DO_SET_MODE command
+// Note: Mode numbers depend heavily on whether you use PX4 or ArduPilot
+// PX4 HOLD mode is typically custom_mode = 4 (or send MAV_CMD_NAV_LOITER_UNLIM)
+//
+//	command := &common.MessageCommandLong{
+//		TargetSystem:    1, // System ID of the drone
+//		TargetComponent: 1, // Component ID of the drone
+//		Command:         common.MAV_CMD_DO_SET_MODE,
+//		Param1:          float32(common.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+//		Param2:          4, // Example custom mode (HOLD in PX4)
+//	}
+func (s *DroneAPI) OverrideMissionAndHover(command *common.MessageCommandLong) error {
+	err := s.drone.node.WriteMessageAll(command)
+	log.Println("Sent override command: Hovering initiated.")
+	return err
 }

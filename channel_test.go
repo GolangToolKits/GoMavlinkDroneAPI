@@ -1,0 +1,47 @@
+package gomavlinkdroneapi_test
+
+import (
+	"testing"
+
+	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
+	"github.com/bluenviron/gomavlib/v3"
+)
+
+func TestDroneAPI_GetDroneChannel(t *testing.T) {
+	tests := []struct {
+		name          string // description of this test case
+		want          *gomavlib.Channel
+		clientAddress string
+		outVersion    gomavlib.Version
+		outSystemID   byte
+		wantErr       bool
+	}{
+		// TODO: Add test cases.
+		{
+			name:          "test 1",
+			clientAddress: "1.2.3.4:5600",
+			outVersion:    gomavlib.V2,
+			outSystemID:   10,
+			wantErr:       false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// TODO: construct the receiver type.
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
+			gotContErr := s.ConnectUDPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			if gotContErr != nil {
+				if !tt.wantErr {
+					t.Errorf("ConnectUDPClient() failed: %v", gotContErr)
+				}
+				return
+			}
+			got := s.GetDroneChannel()
+			// TODO: update the condition below to compare got with tt.want.
+			if got != nil {
+				t.Errorf("GetDroneChannel() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

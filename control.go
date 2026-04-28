@@ -185,20 +185,3 @@ func (s *DroneAPI) ReturnHome(rtlCommand *common.MessageCommandLong) error {
 	}
 	return err
 }
-
-// Prepare the MAV_CMD_DO_SET_MODE command
-// Note: Mode numbers depend heavily on whether you use PX4 or ArduPilot
-// PX4 HOLD mode is typically custom_mode = 4 (or send MAV_CMD_NAV_LOITER_UNLIM)
-//
-//	command := &common.MessageCommandLong{
-//		TargetSystem:    1, // System ID of the drone
-//		TargetComponent: 1, // Component ID of the drone
-//		Command:         common.MAV_CMD_DO_SET_MODE,
-//		Param1:          float32(common.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
-//		Param2:          4, // Example custom mode (HOLD in PX4)
-//	}
-func (s *DroneAPI) OverrideMissionHover(command *common.MessageCommandLong) error {
-	err := s.drone.node.WriteMessageAll(command)
-	log.Println("Sent override command: Hovering initiated.")
-	return err
-}
