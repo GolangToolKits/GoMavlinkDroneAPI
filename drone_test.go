@@ -55,7 +55,7 @@ func TestDrone_ConnectUDPServer(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			serverAddress: ":5600",
+			serverAddress: ":5609",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,
@@ -271,7 +271,7 @@ func TestDrone_ConnectCustomServer(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			listenAddress: ":5600",
+			listenAddress: ":5610",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,

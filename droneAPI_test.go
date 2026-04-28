@@ -64,7 +64,7 @@ func TestDroneAPI_ConnectUDPServer(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			serverAddress: ":5600",
+			serverAddress: ":5606",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,
@@ -101,7 +101,7 @@ func TestDroneAPI_ConnectUDPClient(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			clientAddress: "1.2.3.4:5600",
+			clientAddress: "1.2.3.4:5605",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,
@@ -175,7 +175,7 @@ func TestDroneAPI_ConnectTCPServer(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			serverAddress: ":5600",
+			serverAddress: ":5604",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,
@@ -212,7 +212,7 @@ func TestDroneAPI_ConnectTCPClient(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			clientAddress: "1.2.3.4:5600",
+			clientAddress: "1.2.3.4:5603",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,
@@ -249,7 +249,7 @@ func TestDroneAPI_ConnectCustomClient(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			clientAddress: "1.2.3.4:5600",
+			clientAddress: "1.2.3.4:5602",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,
@@ -287,7 +287,7 @@ func TestDroneAPI_ConnectCustomServer(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			listenAddress: ":5600",
+			listenAddress: ":5601",
 			outVersion:    gomavlib.V2,
 			outSystemID:   10,
 			wantErr:       false,

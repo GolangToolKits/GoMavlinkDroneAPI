@@ -14,6 +14,7 @@ type DroneAPI struct {
 	drone *Drone
 }
 
+// ConnectSerial  ConnectSerial
 func (s *DroneAPI) ConnectSerial(serialDevice string, baud int, outSystemID byte) error {
 	// --- create a node which communicates with a serial endpoint.---
 	// serialDevice: device serial address -> "/dev/ttyUSB0"
@@ -23,6 +24,8 @@ func (s *DroneAPI) ConnectSerial(serialDevice string, baud int, outSystemID byte
 	s.drone = &Drone{}
 	return s.drone.ConnectSerial(serialDevice, baud, outSystemID)
 }
+
+// ConnectUDPServer  ConnectUDPServer
 func (s *DroneAPI) ConnectUDPServer(serverAddress string, outVersion gomavlib.Version, outSystemID byte) error {
 	// ---create a node which communicates with a UDP endpoint in server mode---
 	// serverAddress: server address -> ":5600"
@@ -32,6 +35,7 @@ func (s *DroneAPI) ConnectUDPServer(serverAddress string, outVersion gomavlib.Ve
 	return s.drone.ConnectUDPServer(serverAddress, outVersion, outSystemID)
 }
 
+// ConnectUDPClient ConnectUDPClient
 func (s *DroneAPI) ConnectUDPClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error {
 	// ---create a node which communicates with a UDP endpoint in client mode---
 	// clientAddress: client address -> "1.2.3.4:5600"
@@ -41,6 +45,7 @@ func (s *DroneAPI) ConnectUDPClient(clientAddress string, outVersion gomavlib.Ve
 	return s.drone.ConnectUDPClient(clientAddress, outVersion, outSystemID)
 }
 
+// ConnectUDPBroadcast ConnectUDPBroadcast
 func (s *DroneAPI) ConnectUDPBroadcast(broadcastAddress string, outVersion gomavlib.Version, outSystemID byte) error {
 	// ---create a node which communicates with a UDP endpoint in broadcast mode---
 	// broadcastAddress: broadcast address -> "192.168.7.255:5600"
@@ -50,6 +55,7 @@ func (s *DroneAPI) ConnectUDPBroadcast(broadcastAddress string, outVersion gomav
 	return s.drone.ConnectUDPBroadcast(broadcastAddress, outVersion, outSystemID)
 }
 
+// ConnectTCPServer ConnectTCPServer
 func (s *DroneAPI) ConnectTCPServer(serverAddress string, outVersion gomavlib.Version, outSystemID byte) error {
 	// ---create a node which communicates with a TCP endpoint in server mode---
 	// serverAddress: serverAddress address -> ":5600"
@@ -59,6 +65,7 @@ func (s *DroneAPI) ConnectTCPServer(serverAddress string, outVersion gomavlib.Ve
 	return s.drone.ConnectTCPServer(serverAddress, outVersion, outSystemID)
 }
 
+// ConnectTCPClient ConnectTCPClient
 func (s *DroneAPI) ConnectTCPClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error {
 	// ---create a node which communicates with a TCP endpoint in client mode---
 	// clientAddress: client address -> "1.2.3.4:5600"
@@ -68,6 +75,7 @@ func (s *DroneAPI) ConnectTCPClient(clientAddress string, outVersion gomavlib.Ve
 	return s.drone.ConnectTCPClient(clientAddress, outVersion, outSystemID)
 }
 
+// ConnectCustomClient ConnectCustomClient
 func (s *DroneAPI) ConnectCustomClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error {
 	// ---create a node which communicates with a custom TCP/TLS endpoint in client mode.---
 	// clientAddress: client address -> "127.0.0.1:5600"
@@ -77,6 +85,7 @@ func (s *DroneAPI) ConnectCustomClient(clientAddress string, outVersion gomavlib
 	return s.drone.ConnectCustomClient(clientAddress, outVersion, outSystemID)
 }
 
+// ConnectCustomServer ConnectCustomServer
 func (s *DroneAPI) ConnectCustomServer(listenAddress string, outVersion gomavlib.Version, outSystemID byte) error {
 	// ---create a node which communicates with a custom TCP/TLS endpoint in server mode.---
 	// listenAddress: listenAddress -> ":5600"
@@ -141,16 +150,19 @@ func (s *DroneAPI) IsDroneConnected() (bool, error) {
 	}
 }
 
+// ListenToDroneEvents gets the event for listing in the calling app
 func (s *DroneAPI) ListenToDroneEvents() chan gomavlib.Event {
 	// Once initialized, you must loop over the node.Events() channel.
 	// This handles incoming messages and maintains the internal buffer clearing
 	return s.drone.node.Events()
 }
 
+// Close ends connection to vehicle
 func (s *DroneAPI) Close() {
 	s.drone.Close()
 }
 
+// New ghts a new api reference
 func (s *DroneAPI) New() API {
 	return s
 }

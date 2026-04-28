@@ -2,7 +2,6 @@ package gomavlinkdroneapi
 
 import (
 	"log"
-	"time"
 
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
@@ -10,7 +9,7 @@ import (
 
 // ArmDisarm // command Arm = 1, command Disarm = 0, examples: targetSystem = 1, targetComponent: 1
 func (s *DroneAPI) ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error {
-	var rtn error
+	//var rtn error
 	armCmd := &common.MessageCommandLong{
 		//TargetSystem:    1, // System ID of your drone
 		TargetSystem: targetSystem, // System ID of your drone
@@ -19,7 +18,7 @@ func (s *DroneAPI) ArmDisarm(command float32, targetSystem uint8, targetComponen
 		Command:         common.MAV_CMD_COMPONENT_ARM_DISARM,
 		Param1:          command, // 1 = Arm, 0 = Disarm
 	}
-	rtn = s.drone.node.WriteMessageAll(armCmd)
+	err := s.drone.node.WriteMessageAll(armCmd)
 	switch command {
 	case 1:
 		log.Println("Arm command sent.")
@@ -28,8 +27,8 @@ func (s *DroneAPI) ArmDisarm(command float32, targetSystem uint8, targetComponen
 	}
 
 	// Wait a moment for motors to fully spin up
-	time.Sleep(3 * time.Second)
-	return rtn
+	//time.Sleep(3 * time.Second)
+	return err
 }
 
 // Takeoff sends takeoff
@@ -46,9 +45,9 @@ func (s *DroneAPI) ArmDisarm(command float32, targetSystem uint8, targetComponen
 //			Param7:         1.0, // Altitude target in meters
 //		}
 func (s *DroneAPI) Takeoff(takeOffCommand *common.MessageCommandLong) error {
-	rtn := s.drone.node.WriteMessageAll(takeOffCommand)
+	err := s.drone.node.WriteMessageAll(takeOffCommand)
 	log.Println("Takeoff command sent for 1 meters altitude.")
-	return rtn
+	return err
 }
 
 // Land sends land command
@@ -66,9 +65,9 @@ func (s *DroneAPI) Takeoff(takeOffCommand *common.MessageCommandLong) error {
 //			Param7:         0, // Altitude (0 = ground level)
 //		}
 func (s *DroneAPI) Land(landCommand *common.MessageCommandLong) error {
-	rtn := s.drone.node.WriteMessageAll(landCommand)
+	err := s.drone.node.WriteMessageAll(landCommand)
 	log.Println("Land command sent for 0 meters ground.")
-	return rtn
+	return err
 }
 
 // AcknowledgeCommand commandToCheck:
@@ -122,4 +121,84 @@ func (s *DroneAPI) AcknowledgeCommand(commandToCheck common.MAV_CMD) bool {
 		}
 	}
 	return rtn
+}
+
+//Move
+//Examples
+// moveMessage := &common.MessageSetPositionTargetLocalNed{
+// 		TargetSystem:    1, // Usually 1 for the first drone
+// 		TargetComponent: 1, // Usually 1 for the main flight controller
+
+// 		// MAV_FRAME_BODY_OFFSET_NED means directions are relative to the drone's nose
+// 		CoordinateFrame: common.MAV_FRAME_BODY_OFFSET_NED,
+
+// 		// 3527 = Ignore position & acceleration. ONLY look at velocity and yaw rate.
+// 		TypeMask: 3527,
+
+//		Vx: 2.0, // Move Forward at 2.0 meters per second
+//		Vy: 0.0, // Do not strafe (Right)
+//		Vz: 0.0, // Do not change altitude (Down)
+//	}
+//
+// !!!!!!!!!!!!  Notice  !!!!!!!!!!!
+// Actively broadcasting movement commands at a rate of 5Hz
+// ticker := time.NewTicker(200 * time.Millisecond)
+// This most be done by the calling app:
+// A WebSocket app
+func (s *DroneAPI) Move(moveMessage *common.MessageSetPositionTargetLocalNed) error {
+	// Arming & Mode: This code strictly streams the request to move. For the drone to actually physicalize
+	// this request, you must independently command the vehicle to Arm its motors and change its flight mode
+	// to Guided (Ardupilot) or Offboard (PX4).
+	// You can do this via a manual transmitter or by writing automated commands
+	// through node.WriteMessageAll as well.
+	err := s.drone.node.WriteMessageAll(moveMessage)
+	if err != nil {
+		log.Println("Error broadcasting movement command:", err)
+	} else {
+		log.Println("Sent: Moving Forward at 2m/s")
+	}
+	return err
+}
+
+// Returnhome send vehicle back to launch position
+// Example
+//
+//	rtlCommand := &common.MessageCommandLong{
+//			TargetSystem:    1, // System ID of your drone
+//			TargetComponent: 1, // Component ID of your drone's flight controller
+//			Command:         common.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+//			Confirmation:    1, // 0 for first transmission, 1 for confirmation
+//			Param1:          0, // Unused for RTL
+//			Param2:          0, // Unused for RTL
+//			Param3:          0, // Unused for RTL
+//			Param4:          0, // Unused for RTL
+//			Param5:          0, // Unused for RTL
+//			Param6:          0, // Unused for RTL
+//			Param7:          0, // Unused for RTL
+//		}
+func (s *DroneAPI) ReturnHome(rtlCommand *common.MessageCommandLong) error {
+	err := s.drone.node.WriteMessageAll(rtlCommand)
+	if err != nil {
+		log.Println("Error sending RTL command:", err)
+	} else {
+		log.Println("Return To Launch command sent successfully!")
+	}
+	return err
+}
+
+// Prepare the MAV_CMD_DO_SET_MODE command
+// Note: Mode numbers depend heavily on whether you use PX4 or ArduPilot
+// PX4 HOLD mode is typically custom_mode = 4 (or send MAV_CMD_NAV_LOITER_UNLIM)
+//
+//	command := &common.MessageCommandLong{
+//		TargetSystem:    1, // System ID of the drone
+//		TargetComponent: 1, // Component ID of the drone
+//		Command:         common.MAV_CMD_DO_SET_MODE,
+//		Param1:          float32(common.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+//		Param2:          4, // Example custom mode (HOLD in PX4)
+//	}
+func (s *DroneAPI) OverrideMissionHover(command *common.MessageCommandLong) error {
+	err := s.drone.node.WriteMessageAll(command)
+	log.Println("Sent override command: Hovering initiated.")
+	return err
 }
