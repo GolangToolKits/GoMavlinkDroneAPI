@@ -10,60 +10,76 @@ import (
 )
 
 type GeoFence struct {
-	lat int32
-	lon int32
+	Lat int32
+	Lon int32
 }
 
 func (s *DroneAPI) ClearGeofence(targetSystem uint8, targetComponent uint8) bool {
-	var rtn bool
 	clearMsg := &common.MessageMissionClearAll{
 		TargetSystem:    targetSystem,
 		TargetComponent: targetComponent,
-		MissionType:     common.MAV_MISSION_TYPE_FENCE, // Ensures only fences are wiped, not flight paths
+		MissionType:     common.MAV_MISSION_TYPE_FENCE, // Ensures only fences are wiped
 	}
 
 	time.Sleep(1 * time.Second) // Wait for connection
 	s.drone.node.WriteMessageAll(clearMsg)
 	log.Println("Request to clear old geofences sent.")
 
-	// Listen for the vehicle's confirmation
-	for evt := range s.drone.node.Events() {
-		if e, ok := evt.(*gomavlib.EventFrame); ok {
-			if msg, ok := e.Message().(*common.MessageMissionAck); ok {
-				if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
-					if msg.Type == common.MAV_MISSION_ACCEPTED {
-						log.Println("Geofence cleared successfully!")
-						rtn = true
+	// 1. Create a timeout timer (5 seconds)
+	timeout := time.After(10 * time.Second)
+
+	// 2. Listen for events or the timeout firing
+	for {
+		select {
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				log.Println("Node events channel closed.")
+				return false
+			}
+
+			// Validate incoming MAVLink frame
+			if e, ok := evt.(*gomavlib.EventFrame); ok {
+				if msg, ok := e.Message().(*common.MessageMissionAck); ok {
+					if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
+						if msg.Type == common.MAV_MISSION_ACCEPTED {
+							log.Println("Geofence cleared successfully!")
+							return true
+						}
+						log.Printf("Failed to clear. Error code: %d\n", msg.Type)
+						return false
 					}
-					log.Printf("Failed to clear. Error code: %d\n", msg.Type)
 				}
 			}
+
+		case <-timeout:
+			// 3. Triggered if the 5 seconds lapse without success
+			log.Println("Timeout reached while waiting for MessageMissionAck.")
+			return false
 		}
 	}
-	return rtn
 }
 
 // send new geofense data
 // Example
 //
-//	newFence := []GeoFence{
-//			{lat: 473977418, lon: 85455939},
-//			{lat: 473977418, lon: 85465939},
-//			{lat: 473987418, lon: 85465939},
-//			{lat: 473987418, lon: 85455939},
-//		}
-func (s *DroneAPI) UploadGeofence(newFence []GeoFence, targetSystem uint8, targetComponent uint8) (bool, error) {
+//	newFence: &[]gomavlinkdroneapi.GeoFence{
+//					{Lat: 473977418, Lon: 85455939},
+//					{Lat: 473977418, Lon: 85465939},
+//					{Lat: 473987418, Lon: 85465939},
+//					{Lat: 473987418, Lon: 85455939},
+//				},
+func (s *DroneAPI) UploadGeofence(newFence *[]GeoFence, targetSystem uint8, targetComponent uint8) (bool, error) {
 	log.Println("Commencing new fence stream...")
 	time.Sleep(1 * time.Second)
 
 	// Declare boundary volume size
 	s.drone.node.WriteMessageAll(&common.MessageMissionCount{
 		TargetSystem: targetSystem, TargetComponent: targetComponent,
-		Count: uint16(len(newFence)), MissionType: common.MAV_MISSION_TYPE_FENCE,
+		Count: uint16(len(*newFence)), MissionType: common.MAV_MISSION_TYPE_FENCE,
 	})
 
 	// Setup failsafe timer
-	timeout := time.NewTimer(5 * time.Second)
+	timeout := time.NewTimer(10 * time.Second)
 
 	for {
 		select {
@@ -83,15 +99,15 @@ func (s *DroneAPI) UploadGeofence(newFence []GeoFence, targetSystem uint8, targe
 					timeout.Reset(5 * time.Second) // Reset timer on active response
 					seq := msg.Seq
 
-					if int(seq) < len(newFence) {
+					if int(seq) < len(*newFence) {
 						log.Printf("Uploading requested point #%d\n", seq)
 						s.drone.node.WriteMessageAll(&common.MessageMissionItemInt{
 							TargetSystem: targetSystem, TargetComponent: targetComponent, Seq: seq,
 							Frame:       common.MAV_FRAME_GLOBAL,
 							Command:     common.MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION,
-							Param1:      float32(len(newFence)),
-							X:           newFence[seq].lat,
-							Y:           newFence[seq].lon,
+							Param1:      float32(len(*newFence)),
+							X:           (*newFence)[seq].Lat,
+							Y:           (*newFence)[seq].Lon,
 							MissionType: common.MAV_MISSION_TYPE_FENCE,
 						})
 					}

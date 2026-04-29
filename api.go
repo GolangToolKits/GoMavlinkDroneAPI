@@ -44,7 +44,7 @@ type API interface {
 	AcknowledgeCommand(commandToCheck common.MAV_CMD) bool
 
 	ClearGeofence(targetSystem uint8, targetComponent uint8) bool
-	UploadGeofence(newFence []GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
+	UploadGeofence(newFence *[]GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
 }
 
 // go mod init github.com/GolangToolKits/GoMavlinkDroneAPI

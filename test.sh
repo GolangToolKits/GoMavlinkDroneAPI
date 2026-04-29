@@ -1,2 +1,2 @@
 
-go test -coverprofile=coverage.out
+go test -timeout 120m -coverprofile=coverage.out

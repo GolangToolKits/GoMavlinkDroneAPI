@@ -40,10 +40,9 @@ import (
 //		}
 func (s *DroneAPI) UploadMission(missionItems *[]ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool {
 	var rtn bool
-
 	totalItems := uint16(len(*missionItems))
 
-	// 3. Start the upload by sending MISSION_COUNT
+	// 1. Start the upload by sending MISSION_COUNT
 	countMsg := &common.MessageMissionCount{
 		TargetSystem:    targetSystem,
 		TargetComponent: targetComponent,
@@ -53,41 +52,71 @@ func (s *DroneAPI) UploadMission(missionItems *[]ardupilotmega.MessageMissionIte
 	s.drone.node.WriteMessageAll(countMsg)
 	log.Printf("Sent MISSION_COUNT: %d waypoints\n", totalItems)
 
-	// 4. Handle incoming requests from the drone
-	for evt := range s.drone.node.Events() {
-		if frm, ok := evt.(*gomavlib.EventFrame); ok {
-			switch msg := frm.Message().(type) {
+	// 2. Initialize a timeout timer (e.g., 10 seconds)
+	timeoutDuration := 10 * time.Second
+	timer := time.NewTimer(timeoutDuration)
+	defer timer.Stop()
 
-			// The drone is requesting a specific item
-			case *common.MessageMissionRequestInt:
-				if msg.Seq < totalItems {
-					item := (*missionItems)[msg.Seq]
-					s.drone.node.WriteMessageAll(&item)
-					fmt.Printf("Uploaded waypoint #%d\n", msg.Seq)
-				}
+	// 3. Create a labeled loop to control breaks across the select statement
+uploadLoop:
+	for {
+		select {
+		// Handle incoming events from gomavlib
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				log.Println("Event channel closed.")
+				break uploadLoop
+			}
 
-			case *common.MessageMissionRequest:
-				// fmt.Println("Drone requested MISSION_ITEM instead of MISSION_ITEM_INT. You must convert float coords.")
-				seq := msg.Seq
-				if int(seq) < len(*missionItems) {
-					log.Printf("Uploading item %d...\n", seq)
+			if frm, ok := evt.(*gomavlib.EventFrame); ok {
+				switch msg := frm.Message().(type) {
 
-					itemToSend := (*missionItems)[seq]
-					itemToSend.TargetSystem = targetSystem
-					itemToSend.TargetComponent = targetComponent
+				case *common.MessageMissionRequestInt:
+					// Reset the timer on activity to allow long missions to complete
+					if !timer.Stop() {
+						<-timer.C
+					}
+					timer.Reset(timeoutDuration)
 
-					// Respond directly back to the specific channel requesting it
-					s.drone.node.WriteMessageTo(frm.Channel, &itemToSend) // Use frm.Channel
-				}
-			// Handshake successful
-			case *common.MessageMissionAck:
-				if msg.Type == common.MAV_MISSION_ACCEPTED {
-					fmt.Println("Mission uploaded and ACCEPTED by the drone!")
-					rtn = true
-				} else {
-					log.Printf("Mission rejected by drone! Code: %d", msg.Type)
+					if msg.Seq < totalItems {
+						item := (*missionItems)[msg.Seq]
+						s.drone.node.WriteMessageAll(&item)
+						fmt.Printf("Uploaded waypoint #%d\n", msg.Seq)
+					}
+
+				case *common.MessageMissionRequest:
+					if !timer.Stop() {
+						<-timer.C
+					}
+					timer.Reset(timeoutDuration)
+
+					seq := msg.Seq
+					if int(seq) < len(*missionItems) {
+						log.Printf("Uploading item %d...\n", seq)
+
+						itemToSend := (*missionItems)[seq]
+						itemToSend.TargetSystem = targetSystem
+						itemToSend.TargetComponent = targetComponent
+
+						s.drone.node.WriteMessageTo(frm.Channel, &itemToSend)
+					}
+
+				case *common.MessageMissionAck:
+					if msg.Type == common.MAV_MISSION_ACCEPTED {
+						fmt.Println("Mission uploaded and ACCEPTED by the drone!")
+						rtn = true
+					} else {
+						log.Printf("Mission rejected by drone! Code: %d", msg.Type)
+					}
+					// Break the for loop because the handshake is complete
+					break uploadLoop
 				}
 			}
+
+		// Trigger if no successful activity happens within the window
+		case <-timer.C:
+			log.Println("Timeout reached: Drone did not complete mission handshake.")
+			break uploadLoop
 		}
 	}
 	return rtn
@@ -108,7 +137,7 @@ func (s *DroneAPI) DownloadMissions(targetSystem uint8, targetComponent uint8) (
 	)
 
 	// 1. Create a timer that resets whenever we get data
-	timeoutDuration := 5 * time.Second
+	timeoutDuration := 10 * time.Second
 	timer := time.NewTimer(timeoutDuration)
 	defer timer.Stop()
 
