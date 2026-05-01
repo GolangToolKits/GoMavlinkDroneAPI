@@ -13,7 +13,7 @@ func TestDroneAPI_UploadMission(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for target function.
-		missionItems    *[]ardupilotmega.MessageMissionItemInt
+		missionItems    []ardupilotmega.MessageMissionItemInt
 		targetSystem    uint8
 		targetComponent uint8
 		want            bool
@@ -67,9 +67,11 @@ func TestDroneAPI_UploadMission(t *testing.T) {
 				}
 				return
 			}
-			got := s.UploadMission(tt.missionItems, tt.targetSystem, tt.targetComponent)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			got := s.UploadMission(ctx, tt.missionItems, tt.targetSystem, tt.targetComponent)
 			// TODO: update the condition below to compare got with tt.want.
-			if got != false {
+			if got != nil {
 				t.Errorf("UploadMission() = %v, want %v", got, tt.want)
 			}
 		})
