@@ -2,6 +2,7 @@ package gomavlinkdroneapi
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -25,38 +26,27 @@ func (s *DroneAPI) ClearGeofence(targetSystem uint8, targetComponent uint8) bool
 	s.drone.node.WriteMessageAll(clearMsg)
 	log.Println("Request to clear old geofences sent.")
 
-	// 1. Create a timeout timer (5 seconds)
-	timeout := time.After(10 * time.Second)
+	// Use a clean range loop to process incoming events
+	for evt := range s.drone.node.Events() {
 
-	// 2. Listen for events or the timeout firing
-	for {
-		select {
-		case evt, ok := <-s.drone.node.Events():
-			if !ok {
-				log.Println("Node events channel closed.")
-				return false
-			}
-
-			// Validate incoming MAVLink frame
-			if e, ok := evt.(*gomavlib.EventFrame); ok {
-				if msg, ok := e.Message().(*common.MessageMissionAck); ok {
-					if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
-						if msg.Type == common.MAV_MISSION_ACCEPTED {
-							log.Println("Geofence cleared successfully!")
-							return true
-						}
-						log.Printf("Failed to clear. Error code: %d\n", msg.Type)
-						return false
+		// Validate incoming MAVLink frame
+		if e, ok := evt.(*gomavlib.EventFrame); ok {
+			if msg, ok := e.Message().(*common.MessageMissionAck); ok {
+				if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
+					if msg.Type == common.MAV_MISSION_ACCEPTED {
+						log.Println("Geofence cleared successfully!")
+						return true
 					}
+					log.Printf("Failed to clear. Error code: %d\n", msg.Type)
+					return false
 				}
 			}
-
-		case <-timeout:
-			// 3. Triggered if the 5 seconds lapse without success
-			log.Println("Timeout reached while waiting for MessageMissionAck.")
-			return false
 		}
 	}
+
+	// This is only hit if gomavlib stops and closes the Events() channel
+	log.Println("Node events channel closed.")
+	return false
 }
 
 // send new geofense data
@@ -78,53 +68,50 @@ func (s *DroneAPI) UploadGeofence(newFence *[]GeoFence, targetSystem uint8, targ
 		Count: uint16(len(*newFence)), MissionType: common.MAV_MISSION_TYPE_FENCE,
 	})
 
-	// Setup failsafe timer
-	timeout := time.NewTimer(10 * time.Second)
+	// Use a clean range loop to process incoming events indefinitely
+	for evt := range s.drone.node.Events() {
+		e, ok := evt.(*gomavlib.EventFrame)
+		if !ok {
+			continue
+		}
 
-	for {
-		select {
-		case <-timeout.C:
-			log.Println("Handshake timed out! Communication lost with vehicle.")
-			return false, errors.New("Handshake timed out! Communication lost with vehicle. ")
+		// Autopilot requests a point
+		if msg, ok := e.Message().(*common.MessageMissionRequestInt); ok {
+			if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
+				seq := msg.Seq
 
-		case evt := <-s.drone.node.Events():
-			e, ok := evt.(*gomavlib.EventFrame)
-			if !ok {
-				continue
-			}
-
-			// Autopilot requests a point
-			if msg, ok := e.Message().(*common.MessageMissionRequestInt); ok {
-				if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
-					timeout.Reset(5 * time.Second) // Reset timer on active response
-					seq := msg.Seq
-
-					if int(seq) < len(*newFence) {
-						log.Printf("Uploading requested point #%d\n", seq)
-						s.drone.node.WriteMessageAll(&common.MessageMissionItemInt{
-							TargetSystem: targetSystem, TargetComponent: targetComponent, Seq: seq,
-							Frame:       common.MAV_FRAME_GLOBAL,
-							Command:     common.MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION,
-							Param1:      float32(len(*newFence)),
-							X:           (*newFence)[seq].Lat,
-							Y:           (*newFence)[seq].Lon,
-							MissionType: common.MAV_MISSION_TYPE_FENCE,
-						})
-					}
-				}
-			}
-
-			// Autopilot acknowledges completion
-			if msg, ok := e.Message().(*common.MessageMissionAck); ok {
-				if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
-					if msg.Type == common.MAV_MISSION_ACCEPTED {
-						log.Println("New dynamic geofence live and locked!")
-						return true, nil
-					}
-					log.Printf("Rejected with code %d\n", msg.Type)
-					return false, errors.New("Rejected with code " + string(rune(msg.Type)))
+				if int(seq) < len(*newFence) {
+					log.Printf("Uploading requested point #%d\n", seq)
+					s.drone.node.WriteMessageAll(&common.MessageMissionItemInt{
+						TargetSystem:    targetSystem,
+						TargetComponent: targetComponent,
+						Seq:             seq,
+						Frame:           common.MAV_FRAME_GLOBAL,
+						Command:         common.MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION,
+						Param1:          float32(len(*newFence)),
+						X:               (*newFence)[seq].Lat,
+						Y:               (*newFence)[seq].Lon,
+						MissionType:     common.MAV_MISSION_TYPE_FENCE,
+					})
 				}
 			}
 		}
+
+		// Autopilot acknowledges completion
+		if msg, ok := e.Message().(*common.MessageMissionAck); ok {
+			if msg.MissionType == common.MAV_MISSION_TYPE_FENCE {
+				if msg.Type == common.MAV_MISSION_ACCEPTED {
+					log.Println("New dynamic geofence live and locked!")
+					return true, nil
+				}
+				log.Printf("Rejected with code %d\n", msg.Type)
+				// Fixed the rune bug here: replaced string(rune(msg.Type)) with fmt.Sprintf
+				return false, fmt.Errorf("rejected with code %d", msg.Type)
+			}
+		}
 	}
+
+	// This is only hit if gomavlib stops and closes the Events() channel
+	log.Println("Node events channel closed unexpectedly.")
+	return false, errors.New("node events channel closed unexpectedly")
 }

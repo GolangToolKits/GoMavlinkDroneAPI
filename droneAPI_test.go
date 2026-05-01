@@ -1,6 +1,7 @@
 package gomavlinkdroneapi_test
 
 import (
+	"context"
 	"testing"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
@@ -33,7 +34,9 @@ func TestDroneAPI_ConnectSerial(t *testing.T) {
 			s := ss.New()
 			gotErr := s.ConnectSerial(tt.serialDevice, tt.baud, tt.outSystemID)
 			if tt.testHeartBeat {
-				con, _ := s.IsDroneConnected()
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				con, _ := s.IsDroneConnected(ctx)
 				if !con {
 					t.Fatal("ConnectSerial() succeeded not connected")
 				}
@@ -307,6 +310,56 @@ func TestDroneAPI_ConnectCustomServer(t *testing.T) {
 			}
 			if tt.wantErr {
 				t.Fatal("ConnectCustomServer() succeeded unexpectedly")
+			}
+		})
+	}
+}
+
+func TestDroneAPI_IsDroneConnected(t *testing.T) {
+	tests := []struct {
+		name          string // description of this test case
+		want          bool
+		wantErr       bool
+		serverAddress string
+		outVersion    gomavlib.Version
+		outSystemID   byte
+	}{
+		// TODO: Add test cases.
+		{
+			name:          "test 1",
+			serverAddress: ":5608",
+			outVersion:    gomavlib.V2,
+			outSystemID:   10,
+			wantErr:       false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// TODO: construct the receiver type.
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
+			gotErr := s.ConnectUDPServer(tt.serverAddress, tt.outVersion, tt.outSystemID)
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("ConnectUDPServer() failed: %v", gotErr)
+				}
+				return
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			got, gotErr := s.IsDroneConnected(ctx)
+			if gotErr == nil {
+				if !tt.wantErr {
+					t.Errorf("IsDroneConnected() failed: %v", gotErr)
+				}
+				return
+			}
+			if tt.wantErr {
+				t.Fatal("IsDroneConnected() succeeded unexpectedly")
+			}
+			// TODO: update the condition below to compare got with tt.want.
+			if got != false {
+				t.Errorf("IsDroneConnected() = %v, want %v", got, tt.want)
 			}
 		})
 	}

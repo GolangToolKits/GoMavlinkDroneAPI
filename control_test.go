@@ -1,6 +1,7 @@
 package gomavlinkdroneapi_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -55,7 +56,9 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				return
 			}
 			if tt.checkConnect {
-				con, err := s.IsDroneConnected()
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				con, err := s.IsDroneConnected(ctx)
 				if !con {
 					fmt.Print(err)
 					t.Fatal("ConnectSerial() succeeded not connected")
@@ -84,6 +87,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				}
 				return
 			}
+			s.Close()
 			if tt.wantErr {
 				t.Fatal("ArmDisarm() succeeded unexpectedly")
 			}
@@ -204,6 +208,7 @@ func TestDroneAPI_Move(t *testing.T) {
 				}
 				return
 			}
+			s.Close()
 			if tt.wantErr {
 				t.Fatal("Move() succeeded unexpectedly")
 			}
@@ -327,6 +332,7 @@ func TestDroneAPI_Land(t *testing.T) {
 				}
 				return
 			}
+			s.Close()
 			if tt.wantErr {
 				t.Fatal("Land() succeeded unexpectedly")
 			}

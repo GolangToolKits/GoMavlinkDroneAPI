@@ -36,6 +36,7 @@ func TestDrone_ConnectSerial(t *testing.T) {
 				}
 				return
 			}
+			s.Close()
 			if tt.wantErr {
 				t.Fatal("ConnectSerial() succeeded unexpectedly")
 			}
@@ -72,6 +73,7 @@ func TestDrone_ConnectUDPServer(t *testing.T) {
 				}
 				return
 			}
+			s.Close()
 			if tt.wantErr {
 				t.Fatal("ConnectUDPServer() succeeded unexpectedly")
 			}
@@ -108,6 +110,7 @@ func TestDrone_ConnectUDPClient(t *testing.T) {
 				}
 				return
 			}
+			s.Close()
 			if tt.wantErr {
 				t.Fatal("ConnectUDPClient() succeeded unexpectedly")
 			}

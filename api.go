@@ -1,6 +1,8 @@
 package gomavlinkdroneapi
 
 import (
+	"context"
+
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
@@ -18,7 +20,8 @@ type API interface {
 	ConnectCustomClient(clientAddress string, outVersion gomavlib.Version, outSystemID byte) error
 	ConnectCustomServer(listenAddress string, outVersion gomavlib.Version, outSystemID byte) error
 
-	IsDroneConnected() (bool, error)
+	// IsDroneConnected() (bool, error)
+	IsDroneConnected(ctx context.Context) (bool, error)
 
 	Close()
 
@@ -30,8 +33,11 @@ type API interface {
 
 	//upload missions to the vehicle
 	// UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool
-	UploadMission(missionItems *[]ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool
-	DownloadMissions(targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error)
+	// UploadMission(missionItems *[]ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool
+	// DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error)
+	//DownloadMissions(targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error)
+	UploadMission(ctx context.Context, missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error
+	DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) ([]*ardupilotmega.MessageMissionItemInt, error)
 	OverrideMissionAndHover(command *common.MessageCommandLong) error
 	GetDroneChannel() *gomavlib.Channel
 

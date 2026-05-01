@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"time"
 
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
@@ -114,23 +113,22 @@ func (s *DroneAPI) ConnectCustomServer(listenAddress string, outVersion gomavlib
 // }
 
 // IsDroneConnected checks to see if drone is connected
-func (s *DroneAPI) IsDroneConnected() (bool, error) {
+func (s *DroneAPI) IsDroneConnected(ctx context.Context) (bool, error) {
 
 	log.Println("Is Drone connected, Waiting for drone heartbeat...")
 
-	// 10-second timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	for {
 		select {
+		// 1. Listen for the external cancellation or timeout signal
 		case <-ctx.Done():
-			// DO NOT use log.Fatal here. Let the caller handle the error.
-			log.Println("Connection failed: No heartbeat received from drone.")
-			return false, ctx.Err() // Returns context.DeadlineExceeded
+			log.Println("Connection attempt aborted by external signal.")
+			return false, ctx.Err()
 
+		// 2. Safely read from the event channel
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
+				log.Println("Connection failed: Event channel closed unexpectedly.")
+				s.drone.node.Close()
 				return false, errors.New("event channel closed unexpectedly")
 			}
 

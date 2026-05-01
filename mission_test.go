@@ -1,6 +1,7 @@
 package gomavlinkdroneapi_test
 
 import (
+	"context"
 	"testing"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
@@ -108,7 +109,9 @@ func TestDroneAPI_DownloadMissions(t *testing.T) {
 				}
 				return
 			}
-			got, gotErr := s.DownloadMissions(tt.targetSystem, tt.targetComponent)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			got, gotErr := s.DownloadMissions(ctx, tt.targetSystem, tt.targetComponent)
 			if gotErr == nil {
 				if !tt.wantErr {
 					t.Errorf("DownloadMissions() failed: %v", gotErr)

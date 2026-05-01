@@ -1,6 +1,7 @@
 package gomavlinkdroneapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -38,159 +39,190 @@ import (
 //				Param7:          15,        // Altitude (meters)
 //			},
 //		}
-func (s *DroneAPI) UploadMission(missionItems *[]ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) bool {
-	var rtn bool
-	totalItems := uint16(len(*missionItems))
+const uploadTimeout = 3 * time.Second
 
-	// 1. Start the upload by sending MISSION_COUNT
-	countMsg := &common.MessageMissionCount{
+func (s *DroneAPI) UploadMission(ctx context.Context, missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error {
+	totalItems := uint16(len(missionItems))
+	if totalItems == 0 {
+		return errors.New("cannot upload an empty mission")
+	}
+
+	log.Printf("Starting upload of %d waypoints...\n", totalItems)
+
+	// 1. Initiate upload by sending MISSION_COUNT
+	err := s.drone.node.WriteMessageAll(&common.MessageMissionCount{
 		TargetSystem:    targetSystem,
 		TargetComponent: targetComponent,
 		Count:           totalItems,
 		MissionType:     common.MAV_MISSION_TYPE_MISSION,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send mission count: %w", err)
 	}
-	s.drone.node.WriteMessageAll(countMsg)
-	log.Printf("Sent MISSION_COUNT: %d waypoints\n", totalItems)
 
-	// 2. Initialize a timeout timer (e.g., 10 seconds)
-	timeoutDuration := 10 * time.Second
-	timer := time.NewTimer(timeoutDuration)
+	timer := time.NewTimer(uploadTimeout)
 	defer timer.Stop()
 
-	// 3. Create a labeled loop to control breaks across the select statement
-uploadLoop:
 	for {
 		select {
-		// Handle incoming events from gomavlib
+		case <-ctx.Done():
+			log.Println("Mission upload aborted by external signal.")
+			return ctx.Err()
+
+		case <-timer.C:
+			log.Println("Timeout waiting for drone to request items. Aborting upload.")
+			return errors.New("mission upload timed out")
+
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				log.Println("Event channel closed.")
-				break uploadLoop
+				return errors.New("node events channel closed unexpectedly")
 			}
 
-			if frm, ok := evt.(*gomavlib.EventFrame); ok {
-				switch msg := frm.Message().(type) {
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok {
+				continue
+			}
 
-				case *common.MessageMissionRequestInt:
-					// Reset the timer on activity to allow long missions to complete
-					if !timer.Stop() {
-						<-timer.C
-					}
-					timer.Reset(timeoutDuration)
+			// Filter: Only process messages coming from our targeted drone
+			if frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
+				continue
+			}
 
-					if msg.Seq < totalItems {
-						item := (*missionItems)[msg.Seq]
-						s.drone.node.WriteMessageAll(&item)
-						fmt.Printf("Uploaded waypoint #%d\n", msg.Seq)
-					}
+			switch msg := frm.Message().(type) {
 
-				case *common.MessageMissionRequest:
-					if !timer.Stop() {
-						<-timer.C
-					}
-					timer.Reset(timeoutDuration)
-
-					seq := msg.Seq
-					if int(seq) < len(*missionItems) {
-						log.Printf("Uploading item %d...\n", seq)
-
-						itemToSend := (*missionItems)[seq]
-						itemToSend.TargetSystem = targetSystem
-						itemToSend.TargetComponent = targetComponent
-
-						s.drone.node.WriteMessageTo(frm.Channel, &itemToSend)
-					}
-
-				case *common.MessageMissionAck:
-					if msg.Type == common.MAV_MISSION_ACCEPTED {
-						fmt.Println("Mission uploaded and ACCEPTED by the drone!")
-						rtn = true
-					} else {
-						log.Printf("Mission rejected by drone! Code: %d", msg.Type)
-					}
-					// Break the for loop because the handshake is complete
-					break uploadLoop
+			// Drone is asking for a specific item using integer coordinates
+			case *common.MessageMissionRequestInt:
+				if msg.Seq >= totalItems {
+					log.Printf("Drone requested out-of-bounds sequence: %d", msg.Seq)
+					continue
 				}
-			}
 
-		// Trigger if no successful activity happens within the window
-		case <-timer.C:
-			log.Println("Timeout reached: Drone did not complete mission handshake.")
-			break uploadLoop
+				itemToSend := missionItems[msg.Seq]
+				itemToSend.TargetSystem = targetSystem
+				itemToSend.TargetComponent = targetComponent
+
+				s.drone.node.WriteMessageTo(frm.Channel, &itemToSend)
+				log.Printf("Uploaded waypoint #%d", msg.Seq)
+
+				// Reset the timer since the drone is actively communicating
+				timer.Reset(uploadTimeout)
+
+			// Handshake complete
+			case *common.MessageMissionAck:
+				if msg.Type == common.MAV_MISSION_ACCEPTED {
+					log.Println("Mission uploaded and ACCEPTED by the drone!")
+					return nil
+				}
+
+				log.Printf("Mission rejected by drone! Code: %d", msg.Type)
+				return fmt.Errorf("drone rejected mission with code %d", msg.Type)
+			}
 		}
 	}
-	return rtn
 }
 
-func (s *DroneAPI) DownloadMissions(targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error) {
+const requestTimeout = 2 * time.Second
 
-	var totalItems uint16
-	var currentRequested uint16
-	missionItems := make(map[uint16]*ardupilotmega.MessageMissionItemInt)
-
+func (s *DroneAPI) DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) ([]*ardupilotmega.MessageMissionItemInt, error) {
 	log.Println("Requesting mission list from drone...")
-	s.drone.node.WriteMessageAll(
-		&ardupilotmega.MessageMissionRequestList{
-			TargetSystem:    targetSystem,
-			TargetComponent: targetComponent,
-		},
-	)
 
-	// 1. Create a timer that resets whenever we get data
-	timeoutDuration := 10 * time.Second
-	timer := time.NewTimer(timeoutDuration)
+	err := s.drone.node.WriteMessageAll(&ardupilotmega.MessageMissionRequestList{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to send mission request list: %w", err)
+	}
+
+	var missionItems []*ardupilotmega.MessageMissionItemInt
+	var totalItems uint16
+	currentRequested := uint16(0)
+	countReceived := false
+
+	// Timer to handle dropped MAVLink packets
+	timer := time.NewTimer(requestTimeout)
 	defer timer.Stop()
 
-	// 2. Continuous loop with a select statement
 	for {
 		select {
-		// Branch A: We received an event from gomavlib
+		case <-ctx.Done():
+			log.Println("Mission download aborted by external signal.")
+			return nil, ctx.Err()
+
+		case <-timer.C:
+			// Packet loss occurred. Request the current index again.
+			log.Printf("Timeout waiting for item #%d. Retrying request...", currentRequested)
+			if !countReceived {
+				s.drone.node.WriteMessageAll(&ardupilotmega.MessageMissionRequestList{
+					TargetSystem:    targetSystem,
+					TargetComponent: targetComponent,
+				})
+			} else {
+				s.drone.node.WriteMessageAll(&ardupilotmega.MessageMissionRequestInt{
+					TargetSystem:    targetSystem,
+					TargetComponent: targetComponent,
+					Seq:             currentRequested,
+				})
+			}
+			timer.Reset(requestTimeout)
+
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				log.Println("Node events channel closed.")
-				return nil, nil
+				return nil, errors.New("node events channel closed unexpectedly")
 			}
 
-			switch e := evt.(type) {
-			case *gomavlib.EventFrame:
-				switch msg := e.Message().(type) {
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok {
+				continue
+			}
 
-				case *ardupilotmega.MessageMissionCount:
-					// Data received! Reset the timeout timer
-					if !timer.Stop() {
-						<-timer.C
-					}
-					timer.Reset(timeoutDuration)
+			// 1. Strict filtering: Ignore messages not sent by our targeted drone
+			if frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
+				continue
+			}
 
-					totalItems = msg.Count
-					log.Printf("Drone reported %d items. Starting download...", totalItems)
+			switch msg := frm.Message().(type) {
 
-					if totalItems == 0 {
-						log.Println("No mission items to download.")
-						return nil, nil
-					}
+			case *ardupilotmega.MessageMissionCount:
+				if countReceived {
+					continue // Ignore duplicate count signals
+				}
 
-					currentRequested = 0
-					s.drone.node.WriteMessageTo(e.Channel, &ardupilotmega.MessageMissionRequestInt{
-						TargetSystem:    targetSystem,
-						TargetComponent: targetComponent,
-						Seq:             currentRequested,
-					})
+				totalItems = msg.Count
+				log.Printf("Drone reported %d items. Starting download...", totalItems)
 
-				case *ardupilotmega.MessageMissionItemInt:
-					// Data received! Reset the timeout timer
-					if !timer.Stop() {
-						<-timer.C
-					}
-					timer.Reset(timeoutDuration)
+				if totalItems == 0 {
+					return nil, nil
+				}
 
+				countReceived = true
+				missionItems = make([]*ardupilotmega.MessageMissionItemInt, totalItems)
+
+				// Request first item
+				currentRequested = 0
+				s.drone.node.WriteMessageTo(frm.Channel, &ardupilotmega.MessageMissionRequestInt{
+					TargetSystem:    targetSystem,
+					TargetComponent: targetComponent,
+					Seq:             currentRequested,
+				})
+				timer.Reset(requestTimeout)
+
+			case *ardupilotmega.MessageMissionItemInt:
+				if !countReceived || msg.Seq >= totalItems {
+					continue // Out of bounds or premature item
+				}
+
+				// Only process if it is the specific item we asked for
+				if msg.Seq == currentRequested && missionItems[msg.Seq] == nil {
 					log.Printf("Received item #%d", msg.Seq)
 					missionItems[msg.Seq] = msg
+					currentRequested++
 
-					if uint16(len(missionItems)) == totalItems {
+					// Check if download is complete
+					if currentRequested == totalItems {
 						log.Println("All items received successfully!")
 
-						s.drone.node.WriteMessageTo(e.Channel, &ardupilotmega.MessageMissionAck{
+						s.drone.node.WriteMessageTo(frm.Channel, &ardupilotmega.MessageMissionAck{
 							TargetSystem:    targetSystem,
 							TargetComponent: targetComponent,
 							Type:            ardupilotmega.MAV_MISSION_ACCEPTED,
@@ -198,19 +230,15 @@ func (s *DroneAPI) DownloadMissions(targetSystem uint8, targetComponent uint8) (
 						return missionItems, nil
 					}
 
-					currentRequested++
-					s.drone.node.WriteMessageTo(e.Channel, &ardupilotmega.MessageMissionRequestInt{
+					// Request the next item
+					s.drone.node.WriteMessageTo(frm.Channel, &ardupilotmega.MessageMissionRequestInt{
 						TargetSystem:    targetSystem,
 						TargetComponent: targetComponent,
 						Seq:             currentRequested,
 					})
+					timer.Reset(requestTimeout)
 				}
 			}
-
-		// Branch B: No data was received before the timer fired
-		case <-timer.C:
-			log.Printf("Timeout! Drone failed to respond within %v. Aborting.", timeoutDuration)
-			return nil, errors.New("Timeed out before the missions could be downloaded ")
 		}
 	}
 }

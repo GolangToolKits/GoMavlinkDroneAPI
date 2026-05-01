@@ -1,6 +1,7 @@
 package gomavlinkdroneapi_test
 
 import (
+	"context"
 	"testing"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
@@ -40,14 +41,26 @@ func TestDroneAPI_GetConnectedVehicle(t *testing.T) {
 				}
 				return
 			}
-			got, got2 := s.GetConnectedVehicle()
-			// TODO: update the condition below to compare got with tt.want.
-			if got != 0 {
-				t.Errorf("GetConnectedVehicle() = %v, want %v", got, tt.want)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			con, conErr := s.IsDroneConnected(ctx)
+			if conErr == nil {
+				if !tt.wantErr {
+					t.Errorf("IsDroneConnected() failed: %v", conErr)
+				}
+				return
 			}
-			if got != 0 {
-				t.Errorf("GetConnectedVehicle() = %v, want %v", got2, tt.want2)
+			if con {
+				got, got2 := s.GetConnectedVehicle()
+				// TODO: update the condition below to compare got with tt.want.
+				if got != 0 {
+					t.Errorf("GetConnectedVehicle() = %v, want %v", got, tt.want)
+				}
+				if got != 0 {
+					t.Errorf("GetConnectedVehicle() = %v, want %v", got2, tt.want2)
+				}
 			}
+
 		})
 	}
 }
