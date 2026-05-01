@@ -101,10 +101,15 @@ func (s *DroneAPI) UploadMission(ctx context.Context, missionItems []ardupilotme
 				itemToSend.TargetSystem = targetSystem
 				itemToSend.TargetComponent = targetComponent
 
-				s.drone.node.WriteMessageTo(frm.Channel, &itemToSend)
-				log.Printf("Uploaded waypoint #%d", msg.Seq)
-
-				// Reset the timer since the drone is actively communicating
+				if err := s.drone.node.WriteMessageTo(frm.Channel, &itemToSend); err != nil {
+					log.Printf("Failed to upload waypoint #%d: %v", msg.Seq, err)
+					return fmt.Errorf("failed to upload waypoint #%d: %w", msg.Seq, err)
+				}
+				// Drain the timer channel if necessary before resetting
+				select {
+				case <-timer.C:
+				default:
+				}
 				timer.Reset(uploadTimeout)
 
 			// Handshake complete
