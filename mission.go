@@ -254,8 +254,78 @@ func (s *DroneAPI) DownloadMissions(ctx context.Context, targetSystem uint8, tar
 //		Param1:          float32(common.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
 //		Param2:          4, // Example custom mode (HOLD in PX4)
 //	}
-func (s *DroneAPI) OverrideMissionAndHover(command *common.MessageCommandLong) error {
+//
+//	func (s *DroneAPI) OverrideMissionAndHover(command *common.MessageCommandLong) error {
+//		err := s.drone.node.WriteMessageAll(command)
+//		log.Println("Sent override command: Hovering initiated.")
+//		return err
+//	}
+const commandTimeout = 3 * time.Second
+
+func (s *DroneAPI) OverrideMissionAndHover(ctx context.Context, command *common.MessageCommandLong) error {
+	// 1. Guard clause to ensure the correct command is being executed
+	if command.Command != common.MAV_CMD_DO_REPOSITION && command.Command != common.MAV_CMD_NAV_LOITER_UNLIM {
+		return fmt.Errorf("invalid command ID %d: only loiter/reposition commands are allowed", command.Command)
+	}
+
+	log.Printf("Sending override command (%d): Hovering initiated...", command.Command)
+
+	// 2. Send the command to the drone
 	err := s.drone.node.WriteMessageAll(command)
-	log.Println("Sent override command: Hovering initiated.")
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to send command: %w", err)
+	}
+
+	timer := time.NewTimer(commandTimeout)
+	defer timer.Stop()
+
+	// 3. Listen for the drone's acknowledgment response
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Hover override command aborted by external signal.")
+			return ctx.Err()
+
+		case <-timer.C:
+			log.Println("Timeout waiting for drone command acknowledgment.")
+			return errors.New("command timed out without drone response")
+
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				return errors.New("node events channel closed unexpectedly")
+			}
+
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok {
+				continue
+			}
+
+			// Filter: Only process messages coming from our targeted drone
+			if frm.SystemID() != command.TargetSystem || frm.ComponentID() != command.TargetComponent {
+				continue
+			}
+
+			switch msg := frm.Message().(type) {
+			case *common.MessageCommandAck:
+				// Ensure this ACK is for the command we just sent
+				if msg.Command != command.Command {
+					continue
+				}
+
+				switch msg.Result {
+				case common.MAV_RESULT_ACCEPTED:
+					log.Println("Hover command successfully ACCEPTED by the drone.")
+					return nil
+				case common.MAV_RESULT_TEMPORARILY_REJECTED:
+					return errors.New("drone temporarily rejected command (is it armed/in a valid flight mode?)")
+				case common.MAV_RESULT_DENIED:
+					return errors.New("drone denied the hover command")
+				case common.MAV_RESULT_UNSUPPORTED:
+					return errors.New("drone does not support this hover command")
+				default:
+					return fmt.Errorf("command failed with drone error code: %d", msg.Result)
+				}
+			}
+		}
+	}
 }

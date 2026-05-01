@@ -38,7 +38,8 @@ type API interface {
 	//DownloadMissions(targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error)
 	UploadMission(ctx context.Context, missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error
 	DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) ([]*ardupilotmega.MessageMissionItemInt, error)
-	OverrideMissionAndHover(command *common.MessageCommandLong) error
+	// OverrideMissionAndHover(command *common.MessageCommandLong) error
+	OverrideMissionAndHover(ctx context.Context, command *common.MessageCommandLong) error
 	GetDroneChannel() *gomavlib.Channel
 
 	// flying the vehicle
