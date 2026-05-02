@@ -1,30 +1,37 @@
 package gomavlinkdroneapi
 
 import (
+	"context"
 	"log"
 
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
 )
 
-func (s *DroneAPI) GetDroneChannel() *gomavlib.Channel {
-	// Wait for the drone to send a heartbeat so we can capture its Channel
-	log.Println("Waiting for heartbeat indefinitely...")
+func (s *DroneAPI) GetDroneChannel(ctx context.Context) *gomavlib.Channel {
+	log.Println("Waiting for heartbeat...")
 
-	// 1. Read directly from the gomavlib Events channel using range.
-	// This will safely process events forever until a heartbeat is found
-	// OR until the library automatically closes the channel.
-	for evt := range s.drone.node.Events() {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Wait cancelled or timed out: %v", ctx.Err())
+			return nil
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				log.Println("Node event channel closed")
+				return nil
+			}
 
-		if frm, ok := evt.(*gomavlib.EventFrame); ok {
-			if _, isHeartbeat := frm.Message().(*ardupilotmega.MessageHeartbeat); isHeartbeat {
-				log.Println("Heartbeat received, channel captured!")
+			// Use a type switch for cleaner message handling
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok {
+				continue
+			}
+
+			if _, isHB := frm.Message().(*ardupilotmega.MessageHeartbeat); isHB {
+				log.Printf("Heartbeat detected from %v", frm.Channel)
 				return frm.Channel
 			}
 		}
 	}
-
-	// If the range loop finishes, it means node.Events() was closed.
-	log.Println("Event channel closed.")
-	return nil
 }

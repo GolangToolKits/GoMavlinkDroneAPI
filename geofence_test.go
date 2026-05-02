@@ -1,6 +1,7 @@
 package gomavlinkdroneapi_test
 
 import (
+	"context"
 	"testing"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
@@ -40,7 +41,9 @@ func TestDroneAPI_ClearGeofence(t *testing.T) {
 				}
 				return
 			}
-			got := s.ClearGeofence(tt.targetSystem, tt.targetComponent)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			got := s.ClearGeofence(ctx, tt.targetSystem, tt.targetComponent)
 			// TODO: update the condition below to compare got with tt.want.
 			if got != false {
 				t.Errorf("ClearGeofence() = %v, want %v", got, tt.want)
@@ -53,7 +56,7 @@ func TestDroneAPI_UploadGeofence(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for target function.
-		newFence        *[]gomavlinkdroneapi.GeoFence
+		newFence        []gomavlinkdroneapi.GeoFence
 		targetSystem    uint8
 		targetComponent uint8
 		want            bool
@@ -89,7 +92,9 @@ func TestDroneAPI_UploadGeofence(t *testing.T) {
 				}
 				return
 			}
-			got, gotErr := s.UploadGeofence(tt.newFence, tt.targetSystem, tt.targetComponent)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			got, gotErr := s.UploadGeofence(ctx, tt.newFence, tt.targetSystem, tt.targetComponent)
 			if gotErr == nil {
 				if !tt.wantErr {
 					t.Errorf("UploadGeofence() failed: %v", gotErr)

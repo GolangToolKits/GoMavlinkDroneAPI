@@ -51,7 +51,9 @@ func TestDroneAPI_GetConnectedVehicle(t *testing.T) {
 				return
 			}
 			if con {
-				got, got2 := s.GetConnectedVehicle()
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				got, got2 := s.GetConnectedVehicle(ctx)
 				// TODO: update the condition below to compare got with tt.want.
 				if got != 0 {
 					t.Errorf("GetConnectedVehicle() = %v, want %v", got, tt.want)

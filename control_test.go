@@ -18,8 +18,8 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 		outVersion    gomavlib.Version
 		outSystemID   byte
 		// Named input parameters for target function.
-		armCommand      float32
-		disarmCommand   float32
+		armCommand      bool
+		disarmCommand   bool
 		targetSystem    uint8
 		targetComponent uint8
 
@@ -35,9 +35,9 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			outSystemID:   10,
 			// commands
 			checkConnect:    false,
-			armCommand:      1,
+			armCommand:      true,
 			checkArm:        false,
-			disarmCommand:   0,
+			disarmCommand:   true,
 			targetSystem:    1,
 			targetComponent: 1,
 			wantErr:         false,
@@ -65,22 +65,24 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				}
 				return
 			}
-			armErr := s.ArmDisarm(tt.armCommand, tt.targetSystem, tt.targetComponent)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			armErr := s.ArmDisarm(ctx, tt.armCommand, tt.targetSystem, tt.targetComponent)
 			if armErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ArmDisarm() failed: %v", armErr)
 				}
 				return
 			}
-			if tt.checkArm {
-				armed := s.AcknowledgeCommand(common.MAV_CMD_COMPONENT_ARM_DISARM)
-				if !armed {
-					t.Fatal("Arm() failed")
-				}
-				return
-			}
+			// if tt.checkArm {
+			// 	armed := s.AcknowledgeCommand(common.MAV_CMD_COMPONENT_ARM_DISARM)
+			// 	if !armed {
+			// 		t.Fatal("Arm() failed")
+			// 	}
+			// 	return
+			// }
 
-			disarmErr := s.ArmDisarm(tt.disarmCommand, tt.targetSystem, tt.targetComponent)
+			disarmErr := s.ArmDisarm(ctx, tt.disarmCommand, tt.targetSystem, tt.targetComponent)
 			if disarmErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ArmDisarm() failed: %v", disarmErr)
@@ -104,12 +106,13 @@ func TestDroneAPI_Move(t *testing.T) {
 		clientAddress   string
 		outVersion      gomavlib.Version
 		outSystemID     byte
-		armCommand      float32
-		disarmCommand   float32
+		armCommand      bool
+		disarmCommand   bool
 		targetSystem    uint8
 		targetComponent uint8
 		takeOffCommand  *common.MessageCommandLong
 		rtlCommand      *common.MessageCommandLong
+		altitude        float32
 	}{
 		// TODO: Add test cases.
 
@@ -118,10 +121,11 @@ func TestDroneAPI_Move(t *testing.T) {
 			clientAddress:   "1.2.3.4:5600",
 			outVersion:      gomavlib.V2,
 			outSystemID:     10,
-			armCommand:      1,
-			disarmCommand:   0,
+			armCommand:      true,
+			disarmCommand:   true,
 			targetSystem:    1,
 			targetComponent: 1,
+			altitude:        1,
 			takeOffCommand: &common.MessageCommandLong{
 				TargetSystem:    1,
 				TargetComponent: 1,
@@ -173,35 +177,39 @@ func TestDroneAPI_Move(t *testing.T) {
 				}
 				return
 			}
-			armErr := s.ArmDisarm(tt.armCommand, tt.targetSystem, tt.targetComponent)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			armErr := s.ArmDisarm(ctx, tt.armCommand, tt.targetSystem, tt.targetComponent)
 			if armErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ArmDisarm() failed: %v", armErr)
 				}
 				return
 			}
-			tkoffErr := s.Takeoff(tt.takeOffCommand)
+			tkoffErr := s.Takeoff(ctx, tt.altitude, tt.targetSystem, tt.targetComponent)
 			if tkoffErr != nil {
 				if !tt.wantErr {
 					t.Errorf("Takeoff() failed: %v", tkoffErr)
 				}
 				return
 			}
-			gotErr := s.Move(tt.moveMessage)
+
+			gotErr := s.Move(tt.targetSystem, tt.targetComponent, tt.moveMessage)
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("Move() failed: %v", gotErr)
 				}
 				return
 			}
-			homeErr := s.ReturnHome(tt.rtlCommand)
+
+			homeErr := s.ReturnHome(ctx, tt.targetSystem, tt.targetComponent)
 			if homeErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ReturnHome() failed: %v", homeErr)
 				}
 				return
 			}
-			disarmErr := s.ArmDisarm(tt.disarmCommand, tt.targetSystem, tt.targetComponent)
+			disarmErr := s.ArmDisarm(ctx, tt.disarmCommand, tt.targetSystem, tt.targetComponent)
 			if disarmErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ArmDisarm() failed: %v", disarmErr)
@@ -220,8 +228,11 @@ func TestDroneAPI_Takeoff(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for target function.
-		takeOffCommand *common.MessageCommandLong
-		wantErr        bool
+		takeOffCommand  *common.MessageCommandLong
+		wantErr         bool
+		altitude        float32
+		targetSystem    uint8
+		targetComponent uint8
 	}{
 		// TODO: Add test cases.
 	}
@@ -229,7 +240,9 @@ func TestDroneAPI_Takeoff(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
 			var s gomavlinkdroneapi.DroneAPI
-			gotErr := s.Takeoff(tt.takeOffCommand)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			gotErr := s.Takeoff(ctx, tt.altitude, tt.targetSystem, tt.targetComponent)
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("Takeoff() failed: %v", gotErr)
@@ -252,11 +265,12 @@ func TestDroneAPI_Land(t *testing.T) {
 		clientAddress   string
 		outVersion      gomavlib.Version
 		outSystemID     byte
-		armCommand      float32
-		disarmCommand   float32
+		armCommand      bool
+		disarmCommand   bool
 		targetSystem    uint8
 		targetComponent uint8
 		takeOffCommand  *common.MessageCommandLong
+		altitude        float32
 	}{
 		// TODO: Add test cases.
 		{
@@ -264,10 +278,11 @@ func TestDroneAPI_Land(t *testing.T) {
 			clientAddress:   "1.2.3.4:5600",
 			outVersion:      gomavlib.V2,
 			outSystemID:     10,
-			armCommand:      1,
-			disarmCommand:   0,
+			armCommand:      true,
+			disarmCommand:   true,
 			targetSystem:    1,
 			targetComponent: 1,
+			altitude:        1,
 			takeOffCommand: &common.MessageCommandLong{
 				TargetSystem:    1,
 				TargetComponent: 1,
@@ -304,28 +319,30 @@ func TestDroneAPI_Land(t *testing.T) {
 				}
 				return
 			}
-			armErr := s.ArmDisarm(tt.armCommand, tt.targetSystem, tt.targetComponent)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			armErr := s.ArmDisarm(ctx, tt.armCommand, tt.targetSystem, tt.targetComponent)
 			if armErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ArmDisarm() failed: %v", armErr)
 				}
 				return
 			}
-			tkoffErr := s.Takeoff(tt.takeOffCommand)
+			tkoffErr := s.Takeoff(ctx, tt.altitude, tt.targetSystem, tt.targetComponent)
 			if tkoffErr != nil {
 				if !tt.wantErr {
 					t.Errorf("Takeoff() failed: %v", tkoffErr)
 				}
 				return
 			}
-			gotErr := s.Land(tt.landCommand)
+			gotErr := s.Land(ctx, tt.targetSystem, tt.targetComponent)
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("Land() failed: %v", gotErr)
 				}
 				return
 			}
-			disarmErr := s.ArmDisarm(tt.disarmCommand, tt.targetSystem, tt.targetComponent)
+			disarmErr := s.ArmDisarm(ctx, tt.disarmCommand, tt.targetSystem, tt.targetComponent)
 			if disarmErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ArmDisarm() failed: %v", disarmErr)
@@ -344,8 +361,10 @@ func TestDroneAPI_ReturnHome(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for target function.
-		rtlCommand *common.MessageCommandLong
-		wantErr    bool
+		rtlCommand      *common.MessageCommandLong
+		wantErr         bool
+		targetSystem    uint8
+		targetComponent uint8
 	}{
 		// TODO: Add test cases.
 	}
@@ -353,7 +372,9 @@ func TestDroneAPI_ReturnHome(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
 			var s gomavlinkdroneapi.DroneAPI
-			gotErr := s.ReturnHome(tt.rtlCommand)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			gotErr := s.ReturnHome(ctx, tt.targetSystem, tt.targetComponent)
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ReturnHome() failed: %v", gotErr)

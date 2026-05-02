@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/bluenviron/gomavlib/v3"
-	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
+	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
 type DroneAPI struct {
@@ -114,46 +114,44 @@ func (s *DroneAPI) ConnectCustomServer(listenAddress string, outVersion gomavlib
 
 // IsDroneConnected checks to see if drone is connected
 func (s *DroneAPI) IsDroneConnected(ctx context.Context) (bool, error) {
-
-	log.Println("Is Drone connected, Waiting for drone heartbeat...")
+	log.Println("Checking for drone heartbeat...")
 
 	for {
 		select {
-		// 1. Listen for the external cancellation or timeout signal
 		case <-ctx.Done():
-			log.Println("Connection attempt aborted by external signal.")
 			return false, ctx.Err()
 
-		// 2. Safely read from the event channel
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				log.Println("Connection failed: Event channel closed unexpectedly.")
-				s.drone.node.Close()
-				return false, errors.New("event channel closed unexpectedly")
+				return false, errors.New("gomavlib events channel closed")
 			}
 
-			// Ensure the event is a frame
-			frm, ok := evt.(*gomavlib.EventFrame)
-			if !ok {
-				continue // Skip other event types like EventChannelOpen
-			}
+			switch e := evt.(type) {
+			case *gomavlib.EventFrame:
+				// Ensure it's a heartbeat
+				if msg, ok := e.Message().(*common.MessageHeartbeat); ok {
+					// CRITICAL: Ensure the heartbeat is from a Flight Controller
+					// and not a GCS (Type 6) or an Antenna Tracker.
+					if msg.Type != common.MAV_TYPE_GCS && msg.Autopilot != common.MAV_AUTOPILOT_INVALID {
+						log.Printf("Drone detected! System ID: %d", e.SystemID())
+						return true, nil
+					}
+				}
 
-			// Type assertion check for Heartbeat instead of ID == 0
-			switch msg := frm.Message().(type) {
-			case *ardupilotmega.MessageHeartbeat:
-				log.Printf("🎉 Success! Drone connected. System ID: %d, Autopilot: %d", frm.SystemID(), msg.Autopilot)
-				return true, nil
+			case *gomavlib.EventChannelClose:
+				log.Printf("Channel %s closed unexpectedly", e.Channel)
+				return false, errors.New("physical channel closed")
 			}
 		}
 	}
 }
 
 // ListenToDroneEvents gets the event for listing in the calling app
-func (s *DroneAPI) ListenToDroneEvents() chan gomavlib.Event {
-	// Once initialized, you must loop over the node.Events() channel.
-	// This handles incoming messages and maintains the internal buffer clearing
-	return s.drone.node.Events()
-}
+// func (s *DroneAPI) ListenToDroneEvents() chan gomavlib.Event {
+// 	// Once initialized, you must loop over the node.Events() channel.
+// 	// This handles incoming messages and maintains the internal buffer clearing
+// 	return s.drone.node.Events()
+// }
 
 // Close ends connection to vehicle
 func (s *DroneAPI) Close() {

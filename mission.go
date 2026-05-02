@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/bluenviron/gomavlib/v3"
-	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
@@ -41,211 +40,202 @@ import (
 //		}
 const uploadTimeout = 3 * time.Second
 
-func (s *DroneAPI) UploadMission(ctx context.Context, missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error {
+func (s *DroneAPI) UploadMission(ctx context.Context, missionItems []common.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error {
 	totalItems := uint16(len(missionItems))
 	if totalItems == 0 {
 		return errors.New("cannot upload an empty mission")
 	}
 
-	log.Printf("Starting upload of %d waypoints...\n", totalItems)
-
-	// 1. Initiate upload by sending MISSION_COUNT
-	err := s.drone.node.WriteMessageAll(&common.MessageMissionCount{
+	// 1. Send Count
+	s.drone.node.WriteMessageAll(&common.MessageMissionCount{
 		TargetSystem:    targetSystem,
 		TargetComponent: targetComponent,
 		Count:           totalItems,
 		MissionType:     common.MAV_MISSION_TYPE_MISSION,
 	})
-	if err != nil {
-		return fmt.Errorf("failed to send mission count: %w", err)
-	}
 
-	timer := time.NewTimer(uploadTimeout)
-	defer timer.Stop()
+	// Use a deadline for the entire operation or per-packet
+	expiry := time.Now().Add(uploadTimeout)
 
 	for {
+		if time.Now().After(expiry) {
+			return errors.New("mission upload timed out")
+		}
+
 		select {
 		case <-ctx.Done():
-			log.Println("Mission upload aborted by external signal.")
 			return ctx.Err()
-
-		case <-timer.C:
-			log.Println("Timeout waiting for drone to request items. Aborting upload.")
-			return errors.New("mission upload timed out")
-
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				return errors.New("node events channel closed unexpectedly")
+				return errors.New("node events channel closed")
 			}
 
 			frm, ok := evt.(*gomavlib.EventFrame)
-			if !ok {
+			if !ok || frm.SystemID() != targetSystem {
 				continue
 			}
 
-			// Filter: Only process messages coming from our targeted drone
-			if frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
-				continue
-			}
+			// Handle different request types (Standard and Int)
+			var requestedSeq uint16
+			isRequest := false
 
 			switch msg := frm.Message().(type) {
-
-			// Drone is asking for a specific item using integer coordinates
 			case *common.MessageMissionRequestInt:
-				if msg.Seq >= totalItems {
-					log.Printf("Drone requested out-of-bounds sequence: %d", msg.Seq)
-					continue
-				}
-
-				itemToSend := missionItems[msg.Seq]
-				itemToSend.TargetSystem = targetSystem
-				itemToSend.TargetComponent = targetComponent
-
-				if err := s.drone.node.WriteMessageTo(frm.Channel, &itemToSend); err != nil {
-					log.Printf("Failed to upload waypoint #%d: %v", msg.Seq, err)
-					return fmt.Errorf("failed to upload waypoint #%d: %w", msg.Seq, err)
-				}
-				// Drain the timer channel if necessary before resetting
-				select {
-				case <-timer.C:
-				default:
-				}
-				timer.Reset(uploadTimeout)
-
-			// Handshake complete
+				requestedSeq = msg.Seq
+				isRequest = true
+			case *common.MessageMissionRequest:
+				requestedSeq = msg.Seq
+				isRequest = true
 			case *common.MessageMissionAck:
 				if msg.Type == common.MAV_MISSION_ACCEPTED {
-					log.Println("Mission uploaded and ACCEPTED by the drone!")
+					log.Println("Mission accepted!")
 					return nil
 				}
+				return fmt.Errorf("mission rejected: %v", msg.Type)
+			}
 
-				log.Printf("Mission rejected by drone! Code: %d", msg.Type)
-				return fmt.Errorf("drone rejected mission with code %d", msg.Type)
+			if isRequest {
+				if int(requestedSeq) >= len(missionItems) {
+					return fmt.Errorf("drone requested out-of-bounds seq %d", requestedSeq)
+				}
+
+				// Prepare item and ensure IDs match
+				item := missionItems[requestedSeq]
+				item.TargetSystem = targetSystem
+				item.TargetComponent = targetComponent
+				item.Seq = requestedSeq // Ensure sequence matches request
+
+				s.drone.node.WriteMessageTo(frm.Channel, &item)
+				expiry = time.Now().Add(uploadTimeout) // Refresh timeout
 			}
 		}
 	}
 }
 
-const requestTimeout = 2 * time.Second
+const (
+	packetTimeout = 2 * time.Second
+	maxRetries    = 5
+)
 
-func (s *DroneAPI) DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) ([]*ardupilotmega.MessageMissionItemInt, error) {
-	log.Println("Requesting mission list from drone...")
+func (s *DroneAPI) DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) ([]*common.MessageMissionItemInt, error) {
+	log.Println("Requesting mission list...")
 
-	err := s.drone.node.WriteMessageAll(&ardupilotmega.MessageMissionRequestList{
+	var items []*common.MessageMissionItemInt
+	var total uint16
+	var commsChannel *gomavlib.Channel // Track the specific channel the drone is on
+
+	current := uint16(0)
+	countReceived := false
+	retries := 0
+
+	// 1. Initial Request
+	s.drone.node.WriteMessageAll(&common.MessageMissionRequestList{
 		TargetSystem:    targetSystem,
 		TargetComponent: targetComponent,
+		MissionType:     common.MAV_MISSION_TYPE_MISSION,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to send mission request list: %w", err)
-	}
 
-	var missionItems []*ardupilotmega.MessageMissionItemInt
-	var totalItems uint16
-	currentRequested := uint16(0)
-	countReceived := false
-
-	// Timer to handle dropped MAVLink packets
-	timer := time.NewTimer(requestTimeout)
+	timer := time.NewTimer(packetTimeout)
 	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Mission download aborted by external signal.")
 			return nil, ctx.Err()
 
 		case <-timer.C:
-			// Packet loss occurred. Request the current index again.
-			log.Printf("Timeout waiting for item #%d. Retrying request...", currentRequested)
+			if retries >= maxRetries {
+				return nil, fmt.Errorf("download failed: max retries (%d) reached at item %d", maxRetries, current)
+			}
+			retries++
+			log.Printf("Retry %d/%d for item #%d...", retries, maxRetries, current)
+
 			if !countReceived {
-				s.drone.node.WriteMessageAll(&ardupilotmega.MessageMissionRequestList{
-					TargetSystem:    targetSystem,
-					TargetComponent: targetComponent,
+				s.drone.node.WriteMessageAll(&common.MessageMissionRequestList{
+					TargetSystem: targetSystem, TargetComponent: targetComponent,
+					MissionType: common.MAV_MISSION_TYPE_MISSION,
 				})
-			} else {
-				s.drone.node.WriteMessageAll(&ardupilotmega.MessageMissionRequestInt{
-					TargetSystem:    targetSystem,
-					TargetComponent: targetComponent,
-					Seq:             currentRequested,
+			} else if commsChannel != nil {
+				s.drone.node.WriteMessageTo(commsChannel, &common.MessageMissionRequestInt{
+					TargetSystem: targetSystem, TargetComponent: targetComponent,
+					Seq: current, MissionType: common.MAV_MISSION_TYPE_MISSION,
 				})
 			}
-			timer.Reset(requestTimeout)
+			timer.Reset(packetTimeout)
 
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				return nil, errors.New("node events channel closed unexpectedly")
+				return nil, errors.New("node events channel closed")
 			}
-
 			frm, ok := evt.(*gomavlib.EventFrame)
-			if !ok {
-				continue
-			}
-
-			// 1. Strict filtering: Ignore messages not sent by our targeted drone
-			if frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
+			if !ok || frm.SystemID() != targetSystem {
 				continue
 			}
 
 			switch msg := frm.Message().(type) {
-
-			case *ardupilotmega.MessageMissionCount:
-				if countReceived {
-					continue // Ignore duplicate count signals
+			case *common.MessageMissionCount:
+				if msg.MissionType != common.MAV_MISSION_TYPE_MISSION || countReceived {
+					continue
 				}
 
-				totalItems = msg.Count
-				log.Printf("Drone reported %d items. Starting download...", totalItems)
-
-				if totalItems == 0 {
-					return nil, nil
-				}
-
+				commsChannel = frm.Channel
+				total = msg.Count
 				countReceived = true
-				missionItems = make([]*ardupilotmega.MessageMissionItemInt, totalItems)
+				items = make([]*common.MessageMissionItemInt, total) // Fixed type
 
-				// Request first item
-				currentRequested = 0
-				s.drone.node.WriteMessageTo(frm.Channel, &ardupilotmega.MessageMissionRequestInt{
-					TargetSystem:    targetSystem,
-					TargetComponent: targetComponent,
-					Seq:             currentRequested,
-				})
-				timer.Reset(requestTimeout)
-
-			case *ardupilotmega.MessageMissionItemInt:
-				if !countReceived || msg.Seq >= totalItems {
-					continue // Out of bounds or premature item
-				}
-
-				// Only process if it is the specific item we asked for
-				if msg.Seq == currentRequested && missionItems[msg.Seq] == nil {
-					log.Printf("Received item #%d", msg.Seq)
-					missionItems[msg.Seq] = msg
-					currentRequested++
-
-					// Check if download is complete
-					if currentRequested == totalItems {
-						log.Println("All items received successfully!")
-
-						s.drone.node.WriteMessageTo(frm.Channel, &ardupilotmega.MessageMissionAck{
-							TargetSystem:    targetSystem,
-							TargetComponent: targetComponent,
-							Type:            ardupilotmega.MAV_MISSION_ACCEPTED,
-						})
-						return missionItems, nil
-					}
-
-					// Request the next item
-					s.drone.node.WriteMessageTo(frm.Channel, &ardupilotmega.MessageMissionRequestInt{
-						TargetSystem:    targetSystem,
-						TargetComponent: targetComponent,
-						Seq:             currentRequested,
+				if total == 0 {
+					s.drone.node.WriteMessageTo(frm.Channel, &common.MessageMissionAck{
+						TargetSystem: targetSystem, TargetComponent: targetComponent,
+						Type: common.MAV_MISSION_ACCEPTED, MissionType: common.MAV_MISSION_TYPE_MISSION,
 					})
-					timer.Reset(requestTimeout)
+					return []*common.MessageMissionItemInt{}, nil
 				}
+
+				retries = 0
+				s.drone.node.WriteMessageTo(frm.Channel, &common.MessageMissionRequestInt{
+					TargetSystem: targetSystem, TargetComponent: targetComponent,
+					Seq: 0, MissionType: common.MAV_MISSION_TYPE_MISSION,
+				})
+				resetTimer(timer, packetTimeout)
+
+			case *common.MessageMissionItemInt:
+				if msg.MissionType != common.MAV_MISSION_TYPE_MISSION || msg.Seq != current {
+					continue
+				}
+
+				items[msg.Seq] = msg
+				log.Printf("Received item #%d/%d", msg.Seq+1, total)
+
+				current++
+				retries = 0
+
+				if current == total {
+					s.drone.node.WriteMessageTo(frm.Channel, &common.MessageMissionAck{
+						TargetSystem: targetSystem, TargetComponent: targetComponent,
+						Type: common.MAV_MISSION_ACCEPTED, MissionType: common.MAV_MISSION_TYPE_MISSION,
+					})
+					return items, nil
+				}
+
+				s.drone.node.WriteMessageTo(frm.Channel, &common.MessageMissionRequestInt{
+					TargetSystem: targetSystem, TargetComponent: targetComponent,
+					Seq: current, MissionType: common.MAV_MISSION_TYPE_MISSION,
+				})
+				resetTimer(timer, packetTimeout)
 			}
 		}
 	}
+}
+
+// Helper to safely reset timers
+func resetTimer(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(d)
 }
 
 // Prepare the MAV_CMD_DO_SET_MODE command
@@ -265,70 +255,58 @@ func (s *DroneAPI) DownloadMissions(ctx context.Context, targetSystem uint8, tar
 //		log.Println("Sent override command: Hovering initiated.")
 //		return err
 //	}
-const commandTimeout = 3 * time.Second
-
 func (s *DroneAPI) OverrideMissionAndHover(ctx context.Context, command *common.MessageCommandLong) error {
-	// 1. Guard clause to ensure the correct command is being executed
 	if command.Command != common.MAV_CMD_DO_REPOSITION && command.Command != common.MAV_CMD_NAV_LOITER_UNLIM {
-		return fmt.Errorf("invalid command ID %d: only loiter/reposition commands are allowed", command.Command)
+		return fmt.Errorf("invalid command ID %d", command.Command)
 	}
 
-	log.Printf("Sending override command (%d): Hovering initiated...", command.Command)
+	// Use a ticker for retries. MAVLink commands often need 2-3 tries on noisy links.
+	retryTicker := time.NewTicker(1 * time.Second)
+	defer retryTicker.Stop()
 
-	// 2. Send the command to the drone
-	err := s.drone.node.WriteMessageAll(command)
-	if err != nil {
-		return fmt.Errorf("failed to send command: %w", err)
-	}
+	// Initial send
+	s.drone.node.WriteMessageAll(command)
+	log.Printf("Sending override command %d...", command.Command)
 
-	timer := time.NewTimer(commandTimeout)
-	defer timer.Stop()
-
-	// 3. Listen for the drone's acknowledgment response
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Hover override command aborted by external signal.")
 			return ctx.Err()
 
-		case <-timer.C:
-			log.Println("Timeout waiting for drone command acknowledgment.")
-			return errors.New("command timed out without drone response")
+		case <-retryTicker.C:
+			log.Printf("Retrying command %d...", command.Command)
+			s.drone.node.WriteMessageAll(command)
 
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				return errors.New("node events channel closed unexpectedly")
+				return errors.New("node closed")
 			}
 
 			frm, ok := evt.(*gomavlib.EventFrame)
-			if !ok {
+			// Check SystemID, but be careful with ComponentID.
+			// A drone (CompID 1) often sends ACKs from its Autopilot component.
+			if !ok || frm.SystemID() != command.TargetSystem {
 				continue
 			}
 
-			// Filter: Only process messages coming from our targeted drone
-			if frm.SystemID() != command.TargetSystem || frm.ComponentID() != command.TargetComponent {
-				continue
-			}
-
-			switch msg := frm.Message().(type) {
-			case *common.MessageCommandAck:
-				// Ensure this ACK is for the command we just sent
+			if msg, ok := frm.Message().(*common.MessageCommandAck); ok {
 				if msg.Command != command.Command {
 					continue
 				}
 
 				switch msg.Result {
 				case common.MAV_RESULT_ACCEPTED:
-					log.Println("Hover command successfully ACCEPTED by the drone.")
+					log.Println("Command ACCEPTED")
 					return nil
+				case common.MAV_RESULT_IN_PROGRESS:
+					log.Println("Command in progress...")
+					continue // Keep waiting, don't retry yet
 				case common.MAV_RESULT_TEMPORARILY_REJECTED:
-					return errors.New("drone temporarily rejected command (is it armed/in a valid flight mode?)")
+					return errors.New("temporarily rejected: check flight mode/arming")
 				case common.MAV_RESULT_DENIED:
-					return errors.New("drone denied the hover command")
-				case common.MAV_RESULT_UNSUPPORTED:
-					return errors.New("drone does not support this hover command")
+					return errors.New("command denied")
 				default:
-					return fmt.Errorf("command failed with drone error code: %d", msg.Result)
+					return fmt.Errorf("command failed: result %v", msg.Result)
 				}
 			}
 		}

@@ -1,6 +1,7 @@
 package gomavlinkdroneapi_test
 
 import (
+	"context"
 	"testing"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
@@ -37,7 +38,9 @@ func TestDroneAPI_GetDroneChannel(t *testing.T) {
 				}
 				return
 			}
-			got := s.GetDroneChannel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			got := s.GetDroneChannel(ctx)
 			// TODO: update the condition below to compare got with tt.want.
 			if got != nil {
 				t.Errorf("GetDroneChannel() = %v, want %v", got, tt.want)

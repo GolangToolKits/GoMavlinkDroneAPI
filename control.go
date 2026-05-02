@@ -1,6 +1,9 @@
 package gomavlinkdroneapi
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log"
 
 	"github.com/bluenviron/gomavlib/v3"
@@ -8,27 +11,63 @@ import (
 )
 
 // ArmDisarm // command Arm = 1, command Disarm = 0, examples: targetSystem = 1, targetComponent: 1
-func (s *DroneAPI) ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error {
-	//var rtn error
-	armCmd := &common.MessageCommandLong{
-		//TargetSystem:    1, // System ID of your drone
-		TargetSystem: targetSystem, // System ID of your drone
-		//TargetComponent: 1, // Component ID of your drone
-		TargetComponent: targetComponent, // Component ID of your drone
-		Command:         common.MAV_CMD_COMPONENT_ARM_DISARM,
-		Param1:          command, // 1 = Arm, 0 = Disarm
-	}
-	err := s.drone.node.WriteMessageAll(armCmd)
-	switch command {
-	case 1:
-		log.Println("Arm command sent.")
-	case 0:
-		log.Println("Disarm command sent.")
+func (s *DroneAPI) ArmDisarm(ctx context.Context, arm bool, targetSystem uint8, targetComponent uint8) error {
+	var param1 float32 = 0 // Disarm
+	action := "Disarm"
+	if arm {
+		param1 = 1 // Arm
+		action = "Arm"
 	}
 
-	// Wait a moment for motors to fully spin up
-	//time.Sleep(3 * time.Second)
-	return err
+	armCmd := &common.MessageCommandLong{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+		Command:         common.MAV_CMD_COMPONENT_ARM_DISARM,
+		Param1:          param1,
+		// Param2: 21196, // ArduPilot force-arm magic number (use with caution!)
+	}
+
+	// 1. Send the command
+	if err := s.drone.node.WriteMessageAll(armCmd); err != nil {
+		return fmt.Errorf("failed to send %s command: %w", action, err)
+	}
+	log.Printf("%s command sent, waiting for acknowledgment...", action)
+
+	// 2. Wait for ACK
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%s timed out: %w", action, ctx.Err())
+
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				return errors.New("event channel closed")
+			}
+
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok || frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
+				continue
+			}
+
+			if msg, ok := frm.Message().(*common.MessageCommandAck); ok {
+				if msg.Command != common.MAV_CMD_COMPONENT_ARM_DISARM {
+					continue
+				}
+
+				switch msg.Result {
+				case common.MAV_RESULT_ACCEPTED:
+					log.Printf("Success: Vehicle %sed!", action)
+					return nil
+				case common.MAV_RESULT_TEMPORARILY_REJECTED:
+					return errors.New("arm rejected: pre-arm checks failed (check GPS/Battery)")
+				case common.MAV_RESULT_DENIED:
+					return errors.New("arm denied: check safety switch or flight mode")
+				default:
+					return fmt.Errorf("arm failed with result code: %v", msg.Result)
+				}
+			}
+		}
+	}
 }
 
 // Takeoff sends takeoff
@@ -44,10 +83,55 @@ func (s *DroneAPI) ArmDisarm(command float32, targetSystem uint8, targetComponen
 //			Param6:         0,   // Longitude (0 = current location)
 //			Param7:         1.0, // Altitude target in meters
 //		}
-func (s *DroneAPI) Takeoff(takeOffCommand *common.MessageCommandLong) error {
-	err := s.drone.node.WriteMessageAll(takeOffCommand)
-	log.Println("Takeoff command sent for 1 meters altitude.")
-	return err
+func (s *DroneAPI) Takeoff(ctx context.Context, altitude float32, targetSystem uint8, targetComponent uint8) error {
+	takeOffCmd := &common.MessageCommandLong{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+		Command:         common.MAV_CMD_NAV_TAKEOFF,
+		Param7:          altitude, // Param7 is typically Altitude for NAV_TAKEOFF
+	}
+
+	// 1. Send the command
+	if err := s.drone.node.WriteMessageAll(takeOffCmd); err != nil {
+		return fmt.Errorf("failed to send takeoff: %w", err)
+	}
+	log.Printf("Takeoff command (Alt: %.1fm) sent, waiting for ACK...", altitude)
+
+	// 2. Wait for confirmation
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("takeoff timed out: %w", ctx.Err())
+
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				return errors.New("event channel closed")
+			}
+
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok || frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
+				continue
+			}
+
+			if msg, ok := frm.Message().(*common.MessageCommandAck); ok {
+				if msg.Command != common.MAV_CMD_NAV_TAKEOFF {
+					continue
+				}
+
+				switch msg.Result {
+				case common.MAV_RESULT_ACCEPTED:
+					log.Println("Takeoff accepted! Climbing...")
+					return nil
+				case common.MAV_RESULT_TEMPORARILY_REJECTED:
+					return errors.New("takeoff rejected: is the drone armed and in GUIDED mode?")
+				case common.MAV_RESULT_DENIED:
+					return errors.New("takeoff denied: check safety limits or RC position")
+				default:
+					return fmt.Errorf("takeoff failed: result code %v", msg.Result)
+				}
+			}
+		}
+	}
 }
 
 // Land sends land command
@@ -64,64 +148,109 @@ func (s *DroneAPI) Takeoff(takeOffCommand *common.MessageCommandLong) error {
 //			Param6:         0, // Longitude (0 = current location)
 //			Param7:         0, // Altitude (0 = ground level)
 //		}
-func (s *DroneAPI) Land(landCommand *common.MessageCommandLong) error {
-	err := s.drone.node.WriteMessageAll(landCommand)
-	log.Println("Land command sent for 0 meters ground.")
-	return err
+func (s *DroneAPI) Land(ctx context.Context, targetSystem uint8, targetComponent uint8) error {
+	landCmd := &common.MessageCommandLong{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+		Command:         common.MAV_CMD_NAV_LAND,
+		// Param 1-7 are typically 0 for a basic land-at-current-position command
+	}
+
+	// 1. Send the command
+	if err := s.drone.node.WriteMessageAll(landCmd); err != nil {
+		return fmt.Errorf("failed to send land command: %w", err)
+	}
+	log.Println("Land command sent, waiting for acknowledgment...")
+
+	// 2. Wait for ACK
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("landing request timed out: %w", ctx.Err())
+
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				return errors.New("event channel closed")
+			}
+
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok || frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
+				continue
+			}
+
+			if msg, ok := frm.Message().(*common.MessageCommandAck); ok {
+				if msg.Command != common.MAV_CMD_NAV_LAND {
+					continue
+				}
+
+				switch msg.Result {
+				case common.MAV_RESULT_ACCEPTED:
+					log.Println("Land command ACCEPTED. Vehicle is descending.")
+					return nil
+				case common.MAV_RESULT_TEMPORARILY_REJECTED:
+					return errors.New("land rejected: check current flight mode")
+				case common.MAV_RESULT_DENIED:
+					return errors.New("land denied: command not allowed in current state")
+				default:
+					return fmt.Errorf("land failed: result code %v", msg.Result)
+				}
+			}
+		}
+	}
 }
 
 // AcknowledgeCommand commandToCheck:
 // common.MAV_CMD_NAV_TAKEOFF,
 // common.MAV_CMD_NAV_LAND,
 // common.MAV_CMD_COMPONENT_ARM_DISARM
-func (s *DroneAPI) AcknowledgeCommand(commandToCheck common.MAV_CMD) bool {
-	var rtn bool
-	for evt := range s.drone.node.Events() {
-		// 1. Check if the event is an incoming frame
-		frm, ok := evt.(*gomavlib.EventFrame)
-		if ok {
-			// continue // Skip other events like channel connections/disconnections
-			// 2. Check if the message is a Command Acknowledgment
-			if ack, ok := frm.Message().(*common.MessageCommandAck); ok {
-				if commandToCheck == ack.Command {
-					rtn = true
-					break
-				}
+// func (s *DroneAPI) AcknowledgeCommand(commandToCheck common.MAV_CMD) bool {
+// 	var rtn bool
+// 	for evt := range s.drone.node.Events() {
+// 		// 1. Check if the event is an incoming frame
+// 		frm, ok := evt.(*gomavlib.EventFrame)
+// 		if ok {
+// 			// continue // Skip other events like channel connections/disconnections
+// 			// 2. Check if the message is a Command Acknowledgment
+// 			if ack, ok := frm.Message().(*common.MessageCommandAck); ok {
+// 				if commandToCheck == ack.Command {
+// 					rtn = true
+// 					break
+// 				}
 
-				// 3. Match the command ID to verify which command this ACK belongs to
-				// switch ack.Command {
-				// case common.MAV_CMD_NAV_TAKEOFF:
-				// 	log.Printf("Takeoff ACK Received! Result Code: %v\n", ack.Result)
-				// case common.MAV_CMD_NAV_LAND:
-				// 	log.Printf("Land ACK Received! Result Code: %v\n", ack.Result)
-				// case common.MAV_CMD_COMPONENT_ARM_DISARM:
-				// 	log.Printf("Arm/Disarm ACK Received! Result Code: %v\n", ack.Result)
-				// default:
-				// 	log.Printf("Received ACK for Command %d. Result: %v\n", ack.Command, ack.Result)
-				// }
+// 				// 3. Match the command ID to verify which command this ACK belongs to
+// 				// switch ack.Command {
+// 				// case common.MAV_CMD_NAV_TAKEOFF:
+// 				// 	log.Printf("Takeoff ACK Received! Result Code: %v\n", ack.Result)
+// 				// case common.MAV_CMD_NAV_LAND:
+// 				// 	log.Printf("Land ACK Received! Result Code: %v\n", ack.Result)
+// 				// case common.MAV_CMD_COMPONENT_ARM_DISARM:
+// 				// 	log.Printf("Arm/Disarm ACK Received! Result Code: %v\n", ack.Result)
+// 				// default:
+// 				// 	log.Printf("Received ACK for Command %d. Result: %v\n", ack.Command, ack.Result)
+// 				// }
 
-				// Interpret the result code
-				// handleAckResult(ack.Result)
-				// Helper function to interpret the MAV_RESULT enum
-				// func handleAckResult(result common.MAV_RESULT) {
-				// 	switch result {
-				// 	case common.MAV_RESULT_ACCEPTED:
-				// 		fmt.Println("🚀 Success: Command accepted and executed.")
-				// 	case common.MAV_RESULT_TEMPORARILY_REJECTED:
-				// 		fmt.Println("❌ Denied: Temporarily rejected (e.g., drone isn't armed yet or has no GPS lock).")
-				// 	case common.MAV_RESULT_DENIED:
-				// 		fmt.Println("❌ Denied: Command is invalid or refused by autopilot.")
-				// 	case common.MAV_RESULT_UNSUPPORTED:
-				// 		fmt.Println("❌ Denied: Autopilot doesn't support this command.")
-				// 	default:
-				// 		fmt.Printf("Notice: Other result code received (%d)\n", result)
-				// 	}
-				// }
-			}
-		}
-	}
-	return rtn
-}
+// 				// Interpret the result code
+// 				// handleAckResult(ack.Result)
+// 				// Helper function to interpret the MAV_RESULT enum
+// 				// func handleAckResult(result common.MAV_RESULT) {
+// 				// 	switch result {
+// 				// 	case common.MAV_RESULT_ACCEPTED:
+// 				// 		fmt.Println("🚀 Success: Command accepted and executed.")
+// 				// 	case common.MAV_RESULT_TEMPORARILY_REJECTED:
+// 				// 		fmt.Println("❌ Denied: Temporarily rejected (e.g., drone isn't armed yet or has no GPS lock).")
+// 				// 	case common.MAV_RESULT_DENIED:
+// 				// 		fmt.Println("❌ Denied: Command is invalid or refused by autopilot.")
+// 				// 	case common.MAV_RESULT_UNSUPPORTED:
+// 				// 		fmt.Println("❌ Denied: Autopilot doesn't support this command.")
+// 				// 	default:
+// 				// 		fmt.Printf("Notice: Other result code received (%d)\n", result)
+// 				// 	}
+// 				// }
+// 			}
+// 		}
+// 	}
+// 	return rtn
+// }
 
 //Move
 //Examples
@@ -145,19 +274,22 @@ func (s *DroneAPI) AcknowledgeCommand(commandToCheck common.MAV_CMD) bool {
 // ticker := time.NewTicker(200 * time.Millisecond)
 // This most be done by the calling app:
 // A WebSocket app
-func (s *DroneAPI) Move(moveMessage *common.MessageSetPositionTargetLocalNed) error {
-	// Arming & Mode: This code strictly streams the request to move. For the drone to actually physicalize
-	// this request, you must independently command the vehicle to Arm its motors and change its flight mode
-	// to Guided (Ardupilot) or Offboard (PX4).
-	// You can do this via a manual transmitter or by writing automated commands
-	// through node.WriteMessageAll as well.
-	err := s.drone.node.WriteMessageAll(moveMessage)
-	if err != nil {
-		log.Println("Error broadcasting movement command:", err)
-	} else {
-		log.Println("Sent: Moving Forward at 2m/s")
+func (s *DroneAPI) Move(targetSystem uint8, targetComponent uint8, moveMessage *common.MessageSetPositionTargetLocalNed) error {
+	// 1. Explicitly set target IDs to ensure the message hits the right drone.
+	moveMessage.TargetSystem = targetSystem
+	moveMessage.TargetComponent = targetComponent
+
+	// 2. Broadcast the message.
+	// gomavlib expects the pointer (*common.MessageSetPositionTargetLocalNed).
+	if err := s.drone.node.WriteMessageAll(moveMessage); err != nil {
+		return fmt.Errorf("failed to send movement command: %w", err)
 	}
-	return err
+
+	// 3. Log using the correct field names: Vx and Vy
+	log.Printf("Sent Move Command: Vx=%.2f, Vy=%.2f to System %d",
+		moveMessage.Vx, moveMessage.Vy, targetSystem)
+
+	return nil
 }
 
 // Returnhome send vehicle back to launch position
@@ -176,12 +308,52 @@ func (s *DroneAPI) Move(moveMessage *common.MessageSetPositionTargetLocalNed) er
 //			Param6:          0, // Unused for RTL
 //			Param7:          0, // Unused for RTL
 //		}
-func (s *DroneAPI) ReturnHome(rtlCommand *common.MessageCommandLong) error {
-	err := s.drone.node.WriteMessageAll(rtlCommand)
-	if err != nil {
-		log.Println("Error sending RTL command:", err)
-	} else {
-		log.Println("Return To Launch command sent successfully!")
+func (s *DroneAPI) ReturnHome(ctx context.Context, targetSystem uint8, targetComponent uint8) error {
+	rtlCmd := &common.MessageCommandLong{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+		Command:         common.MAV_CMD_NAV_RETURN_TO_LAUNCH,
 	}
-	return err
+
+	// 1. Send the command
+	if err := s.drone.node.WriteMessageAll(rtlCmd); err != nil {
+		return fmt.Errorf("failed to broadcast RTL: %w", err)
+	}
+	log.Println("RTL command sent, waiting for ACK...")
+
+	// 2. Wait for the drone to acknowledge the mode change
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("RTL request timed out: %w", ctx.Err())
+
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				return errors.New("event channel closed")
+			}
+
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok || frm.SystemID() != targetSystem || frm.ComponentID() != targetComponent {
+				continue
+			}
+
+			if msg, ok := frm.Message().(*common.MessageCommandAck); ok {
+				if msg.Command != common.MAV_CMD_NAV_RETURN_TO_LAUNCH {
+					continue
+				}
+
+				switch msg.Result {
+				case common.MAV_RESULT_ACCEPTED:
+					log.Println("RTL Accepted! Drone is coming home.")
+					return nil
+				case common.MAV_RESULT_TEMPORARILY_REJECTED:
+					return errors.New("RTL rejected: check if home position is set")
+				case common.MAV_RESULT_DENIED:
+					return errors.New("RTL denied: drone refuses to switch modes")
+				default:
+					return fmt.Errorf("RTL failed with result: %v", msg.Result)
+				}
+			}
+		}
+	}
 }

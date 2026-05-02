@@ -1,52 +1,42 @@
 package gomavlinkdroneapi
 
 import (
+	"context"
 	"log"
-	"time"
 
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
-func (s *DroneAPI) GetConnectedVehicle() (targetSystem byte, targetComponent byte) {
+func (s *DroneAPI) GetConnectedVehicle(ctx context.Context) (targetSystem byte, targetComponent byte) {
 	log.Println("Waiting for vehicle heartbeat...")
 
-	// 1. Initialize a 10-second timeout timer
-	timeoutDuration := 10 * time.Second
-	timer := time.NewTimer(timeoutDuration)
-	defer timer.Stop()
-
-	// 2. Continuous loop to process events
 	for {
 		select {
-		// Handle incoming events from gomavlib
+		case <-ctx.Done():
+			log.Println("Search aborted or timed out.")
+			return 0, 0
+
 		case evt, ok := <-s.drone.node.Events():
 			if !ok {
-				log.Println("Event channel closed.")
 				return 0, 0
 			}
 
-			// Filter strictly for incoming packet frames
 			if frm, ok := evt.(*gomavlib.EventFrame); ok {
+				if msg, ok := frm.Message().(*common.MessageHeartbeat); ok {
 
-				// Narrow down to Heartbeat messages to identify the target
-				if _, ok := frm.Message().(*common.MessageHeartbeat); ok {
-					targetSystem = frm.SystemID()
-					targetComponent = frm.ComponentID()
+					// 1. Filter for actual vehicles (Type < 5 usually covers fixed-wing/quad/sub)
+					// This avoids accidentally connecting to a GCS (Type 6)
+					if msg.Type == common.MAV_TYPE_GCS || msg.Type == common.MAV_TYPE_ONBOARD_CONTROLLER {
+						continue
+					}
 
-					log.Printf("Connected to Vehicle!\n")
-					log.Printf("TargetSystem: %d\n", targetSystem)
-					log.Printf("TargetComponent: %d\n", targetComponent)
+					log.Printf("Connected to Vehicle on %s!", frm.Channel.String())
+					log.Printf("TargetSystem: %d, TargetComponent: %d", frm.SystemID(), frm.ComponentID())
 
-					// Successfully found the heartbeat, return the IDs
-					return targetSystem, targetComponent
+					return frm.SystemID(), frm.ComponentID()
 				}
 			}
-
-		// Trigger if no heartbeat is received within the duration
-		case <-timer.C:
-			log.Println("Timeout: No vehicle heartbeat received.")
-			return 0, 0
 		}
 	}
 }

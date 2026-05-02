@@ -26,10 +26,11 @@ type API interface {
 	Close()
 
 	//Get Connected Vehicle ids
-	GetConnectedVehicle() (targetSystem byte, targetComponent byte)
+	// GetConnectedVehicle() (targetSystem byte, targetComponent byte)
+	GetConnectedVehicle(ctx context.Context) (targetSystem byte, targetComponent byte)
 
 	// listen to the vehicle
-	ListenToDroneEvents() chan gomavlib.Event
+	// ListenToDroneEvents() chan gomavlib.Event
 
 	//upload missions to the vehicle
 	// UploadMission(droneChannel *gomavlib.Channel, mission []ardupilotmega.MessageMissionItemInt) bool
@@ -40,18 +41,26 @@ type API interface {
 	DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) ([]*ardupilotmega.MessageMissionItemInt, error)
 	// OverrideMissionAndHover(command *common.MessageCommandLong) error
 	OverrideMissionAndHover(ctx context.Context, command *common.MessageCommandLong) error
-	GetDroneChannel() *gomavlib.Channel
+	// GetDroneChannel() *gomavlib.Channel
+	GetDroneChannel(ctx context.Context) *gomavlib.Channel
 
 	// flying the vehicle
-	ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error
-	Takeoff(takeOffCommand *common.MessageCommandLong) error
-	Land(landCommand *common.MessageCommandLong) error
-	Move(moveMessage *common.MessageSetPositionTargetLocalNed) error
-	ReturnHome(rtlCommand *common.MessageCommandLong) error
-	AcknowledgeCommand(commandToCheck common.MAV_CMD) bool
+	//ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error
+	ArmDisarm(ctx context.Context, arm bool, targetSystem uint8, targetComponent uint8) error
+	// Takeoff(takeOffCommand *common.MessageCommandLong) error
+	Takeoff(ctx context.Context, altitude float32, targetSystem uint8, targetComponent uint8) error
+	// Land(landCommand *common.MessageCommandLong) error
+	Land(ctx context.Context, targetSystem uint8, targetComponent uint8) error
+	// Move(moveMessage *common.MessageSetPositionTargetLocalNed) error
+	Move(targetSystem uint8, targetComponent uint8, moveMessage *common.MessageSetPositionTargetLocalNed) error
+	ReturnHome(ctx context.Context, targetSystem uint8, targetComponent uint8) error
+	// ReturnHome(rtlCommand *common.MessageCommandLong) error
+	// AcknowledgeCommand(commandToCheck common.MAV_CMD) bool
 
-	ClearGeofence(targetSystem uint8, targetComponent uint8) bool
-	UploadGeofence(newFence *[]GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
+	// ClearGeofence(targetSystem uint8, targetComponent uint8) bool
+	ClearGeofence(ctx context.Context, targetSystem uint8, targetComponent uint8) bool
+	UploadGeofence(ctx context.Context, newFence []GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
+	// UploadGeofence(newFence *[]GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
 }
 
 // go mod init github.com/GolangToolKits/GoMavlinkDroneAPI
