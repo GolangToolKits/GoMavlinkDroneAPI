@@ -112,6 +112,88 @@ func (s *DroneAPI) UploadMission(ctx context.Context, missionItems []common.Mess
 	}
 }
 
+// Start Drone mission  !!important!! Drone must be armed before calling this method.
+func (s *DroneAPI) StartMission(ctx context.Context, targetSystem uint8, targetComponent uint8) error {
+	// 1. Send the command to switch to AUTO mode
+	err := s.drone.node.WriteMessageAll(&common.MessageCommandLong{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+		Command:         common.MAV_CMD_DO_SET_MODE,
+		Param1:          float32(common.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+		Param2:          3, // ArduCopter AUTO; use 4 for PX4
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send mode command: %w", err)
+	}
+
+	// 2. Wait for COMMAND_ACK
+	for {
+		select {
+		case <-ctx.Done():
+			return errors.New("timeout waiting for command acknowledgment")
+		case evt := <-s.drone.node.Events():
+			if frm, ok := evt.(*gomavlib.EventFrame); ok {
+				if msg, ok := frm.Message().(*common.MessageCommandAck); ok {
+					// Check if this ACK is for our specific command
+					if msg.Command == common.MAV_CMD_DO_SET_MODE {
+						if msg.Result == common.MAV_RESULT_ACCEPTED {
+							log.Println("Mission started successfully!")
+							return nil
+						}
+						return fmt.Errorf("mission start rejected: %v", msg.Result)
+					}
+				}
+			}
+		}
+	}
+}
+
+// MonitorMission listens for mission progress and sends RTL when the final waypoint is reached
+func (s *DroneAPI) MonitorMission(ctx context.Context, totalItems uint16, targetSystem uint8) (bool, error) {
+	lastSeq := totalItems - 1
+	var currentTarget uint16
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+
+		case evt, ok := <-s.drone.node.Events():
+			if !ok {
+				return false, fmt.Errorf("node events channel closed")
+			}
+
+			frm, ok := evt.(*gomavlib.EventFrame)
+			if !ok || frm.SystemID() != targetSystem {
+				continue
+			}
+
+			switch msg := frm.Message().(type) {
+
+			case *common.MessageMissionCurrent:
+				// Track which item the drone is currently flying TOWARD
+				if msg.Seq != currentTarget {
+					currentTarget = msg.Seq
+					fmt.Printf("Drone is now navigating to waypoint #%d\n", currentTarget)
+				}
+
+			case *common.MessageMissionItemReached:
+				// Track which item the drone has ARRIVED at
+				fmt.Printf("Successfully reached waypoint #%d/%d\n", msg.Seq, lastSeq)
+
+				if msg.Seq == lastSeq {
+					fmt.Println("Final waypoint reached. Sending RTL...")
+					err := s.drone.node.WriteMessageAll(&common.MessageCommandLong{
+						TargetSystem: targetSystem,
+						Command:      common.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+					})
+					return true, err
+				}
+			}
+		}
+	}
+}
+
 const (
 	packetTimeout = 2 * time.Second
 	maxRetries    = 5

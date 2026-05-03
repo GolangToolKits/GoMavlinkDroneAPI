@@ -130,3 +130,31 @@ func TestDroneAPI_DownloadMissions(t *testing.T) {
 		})
 	}
 }
+
+func TestDroneAPI_StartMission(t *testing.T) {
+	tests := []struct {
+		name string // description of this test case
+		// Named input parameters for target function.
+		targetSystem    uint8
+		targetComponent uint8
+		wantErr         bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// TODO: construct the receiver type.
+			var s gomavlinkdroneapi.DroneAPI
+			gotErr := s.StartMission(context.Background(), tt.targetSystem, tt.targetComponent)
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("StartMission() failed: %v", gotErr)
+				}
+				return
+			}
+			if tt.wantErr {
+				t.Fatal("StartMission() succeeded unexpectedly")
+			}
+		})
+	}
+}

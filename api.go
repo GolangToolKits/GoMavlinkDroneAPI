@@ -38,6 +38,8 @@ type API interface {
 	// DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error)
 	//DownloadMissions(targetSystem uint8, targetComponent uint8) (map[uint16]*ardupilotmega.MessageMissionItemInt, error)
 	UploadMission(ctx context.Context, missionItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error
+	StartMission(ctx context.Context, targetSystem uint8, targetComponent uint8) error
+	MonitorMission(ctx context.Context, totalItems uint16, targetSystem uint8) (bool, error)
 	DownloadMissions(ctx context.Context, targetSystem uint8, targetComponent uint8) ([]*ardupilotmega.MessageMissionItemInt, error)
 	// OverrideMissionAndHover(command *common.MessageCommandLong) error
 	OverrideMissionAndHover(ctx context.Context, command *common.MessageCommandLong) error
