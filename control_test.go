@@ -27,6 +27,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 		checkArm     bool
 		wantErr      bool
 		altitude     float32
+		returnToHome bool
 		moveMessage  *common.MessageSetPositionTargetLocalNed
 	}{
 		// TODO: Add test cases.
@@ -44,6 +45,37 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			targetComponent: 1,
 			wantErr:         false,
 			altitude:        1,
+			returnToHome:    false,
+			moveMessage: &common.MessageSetPositionTargetLocalNed{
+				TargetSystem:    1, // Usually 1 for the first drone
+				TargetComponent: 1, // Usually 1 for the main flight controller
+
+				// MAV_FRAME_BODY_OFFSET_NED means directions are relative to the drone's nose
+				CoordinateFrame: common.MAV_FRAME_BODY_OFFSET_NED,
+
+				// 3527 = Ignore position & acceleration. ONLY look at velocity and yaw rate.
+				TypeMask: 3527,
+
+				Vx: 1.0, // Move Forward at 2.0 meters per second
+				Vy: 0.0, // Do not strafe (Right)
+				Vz: 0.0, // Do not change altitude (Down)
+			},
+		},
+		{
+			name:          "test 2",
+			clientAddress: "127.0.0.1:5760",
+			outVersion:    gomavlib.V2,
+			outSystemID:   255,
+			// commands
+			checkConnect:    true,
+			armCommand:      true,
+			checkArm:        false,
+			disarmCommand:   false,
+			targetSystem:    1,
+			targetComponent: 1,
+			wantErr:         false,
+			altitude:        1,
+			returnToHome:    true,
 			moveMessage: &common.MessageSetPositionTargetLocalNed{
 				TargetSystem:    1, // Usually 1 for the first drone
 				TargetComponent: 1, // Usually 1 for the main flight controller
@@ -138,12 +170,22 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				return
 			}
 
-			lndErr := s.Land(ctx, tt.targetSystem, tt.targetComponent)
-			if lndErr != nil {
-				if !tt.wantErr {
-					t.Errorf("Land() failed: %v", lndErr)
+			if tt.returnToHome {
+				homeErr := s.ReturnHome(ctx, tt.targetSystem, tt.targetComponent)
+				if homeErr != nil {
+					if !tt.wantErr {
+						t.Errorf("ReturnHome() failed: %v", homeErr)
+					}
+					return
 				}
-				return
+			} else {
+				lndErr := s.Land(ctx, tt.targetSystem, tt.targetComponent)
+				if lndErr != nil {
+					if !tt.wantErr {
+						t.Errorf("Land() failed: %v", lndErr)
+					}
+					return
+				}
 			}
 
 			disarmErr := s.ArmDisarm(ctx, tt.disarmCommand, tt.targetSystem, tt.targetComponent)

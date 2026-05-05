@@ -215,59 +215,6 @@ func (s *DroneAPI) Land(ctx context.Context, targetSystem uint8, targetComponent
 	}
 }
 
-// AcknowledgeCommand commandToCheck:
-// common.MAV_CMD_NAV_TAKEOFF,
-// common.MAV_CMD_NAV_LAND,
-// common.MAV_CMD_COMPONENT_ARM_DISARM
-// func (s *DroneAPI) AcknowledgeCommand(commandToCheck common.MAV_CMD) bool {
-// 	var rtn bool
-// 	for evt := range s.drone.node.Events() {
-// 		// 1. Check if the event is an incoming frame
-// 		frm, ok := evt.(*gomavlib.EventFrame)
-// 		if ok {
-// 			// continue // Skip other events like channel connections/disconnections
-// 			// 2. Check if the message is a Command Acknowledgment
-// 			if ack, ok := frm.Message().(*common.MessageCommandAck); ok {
-// 				if commandToCheck == ack.Command {
-// 					rtn = true
-// 					break
-// 				}
-
-// 				// 3. Match the command ID to verify which command this ACK belongs to
-// 				// switch ack.Command {
-// 				// case common.MAV_CMD_NAV_TAKEOFF:
-// 				// 	log.Printf("Takeoff ACK Received! Result Code: %v\n", ack.Result)
-// 				// case common.MAV_CMD_NAV_LAND:
-// 				// 	log.Printf("Land ACK Received! Result Code: %v\n", ack.Result)
-// 				// case common.MAV_CMD_COMPONENT_ARM_DISARM:
-// 				// 	log.Printf("Arm/Disarm ACK Received! Result Code: %v\n", ack.Result)
-// 				// default:
-// 				// 	log.Printf("Received ACK for Command %d. Result: %v\n", ack.Command, ack.Result)
-// 				// }
-
-// 				// Interpret the result code
-// 				// handleAckResult(ack.Result)
-// 				// Helper function to interpret the MAV_RESULT enum
-// 				// func handleAckResult(result common.MAV_RESULT) {
-// 				// 	switch result {
-// 				// 	case common.MAV_RESULT_ACCEPTED:
-// 				// 		fmt.Println("🚀 Success: Command accepted and executed.")
-// 				// 	case common.MAV_RESULT_TEMPORARILY_REJECTED:
-// 				// 		fmt.Println("❌ Denied: Temporarily rejected (e.g., drone isn't armed yet or has no GPS lock).")
-// 				// 	case common.MAV_RESULT_DENIED:
-// 				// 		fmt.Println("❌ Denied: Command is invalid or refused by autopilot.")
-// 				// 	case common.MAV_RESULT_UNSUPPORTED:
-// 				// 		fmt.Println("❌ Denied: Autopilot doesn't support this command.")
-// 				// 	default:
-// 				// 		fmt.Printf("Notice: Other result code received (%d)\n", result)
-// 				// 	}
-// 				// }
-// 			}
-// 		}
-// 	}
-// 	return rtn
-// }
-
 //Move
 //Examples
 // moveMessage := &common.MessageSetPositionTargetLocalNed{
