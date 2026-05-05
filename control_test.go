@@ -95,6 +95,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// TODO: construct the receiver type.
+			fmt.Printf("Running test: %s\n", tt.name)
 			var ss gomavlinkdroneapi.DroneAPI
 			s := ss.New()
 			// gotContErr := s.ConnectUDPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
