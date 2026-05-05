@@ -6,4 +6,6 @@ const (
 	MODE_GUIDED uint32 = 4
 	MODE_CUSTOM uint8  = 1
 	MODE_AUTO   uint8  = 3
+
+	MISSION_COMPLETED uint16 = 65535
 )

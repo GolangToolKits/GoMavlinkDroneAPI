@@ -38,7 +38,7 @@ import (
 //				Param7:          15,        // Altitude (meters)
 //			},
 //		}
-const uploadTimeout = 3 * time.Second
+const uploadTimeout = 1000 * time.Second
 
 func (s *DroneAPI) UploadMission(ctx context.Context, missionItems []common.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error {
 	totalItems := uint16(len(missionItems))
@@ -152,6 +152,13 @@ func (s *DroneAPI) StartMission(ctx context.Context, targetSystem uint8, targetC
 func (s *DroneAPI) MonitorMission(ctx context.Context, totalItems uint16, targetSystem uint8) (bool, error) {
 	lastSeq := totalItems - 1
 	var currentTarget uint16
+	s.drone.node.WriteMessageAll(&common.MessageCommandLong{
+		TargetSystem:    1,
+		TargetComponent: 1,
+		Command:         common.MAV_CMD_SET_MESSAGE_INTERVAL,
+		Param1:          46,     //42,     // Message ID for MISSION_CURRENT
+		Param2:          500000, // Interval in microseconds
+	})
 
 	for {
 		select {
@@ -168,6 +175,8 @@ func (s *DroneAPI) MonitorMission(ctx context.Context, totalItems uint16, target
 				continue
 			}
 
+			log.Printf("Received message of type %T", frm.Message())
+
 			switch msg := frm.Message().(type) {
 
 			case *common.MessageMissionCurrent:
@@ -181,7 +190,7 @@ func (s *DroneAPI) MonitorMission(ctx context.Context, totalItems uint16, target
 				// Track which item the drone has ARRIVED at
 				fmt.Printf("Successfully reached waypoint #%d/%d\n", msg.Seq, lastSeq)
 
-				if msg.Seq == lastSeq {
+				if msg.Seq == MISSION_COMPLETED {
 					fmt.Println("Final waypoint reached. Sending RTL...")
 					err := s.drone.node.WriteMessageAll(&common.MessageCommandLong{
 						TargetSystem: targetSystem,
