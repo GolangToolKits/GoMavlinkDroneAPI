@@ -38,7 +38,7 @@ import (
 //				Param7:          15,        // Altitude (meters)
 //			},
 //		}
-const uploadTimeout = 1000 * time.Second
+const uploadTimeout = 10 * time.Second
 
 func (s *DroneAPI) UploadMission(ctx context.Context, missionItems []common.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) error {
 	totalItems := uint16(len(missionItems))
@@ -336,7 +336,7 @@ func resetTimer(t *time.Timer, d time.Duration) {
 //	command := &common.MessageCommandLong{
 //		TargetSystem:    1, // System ID of the drone
 //		TargetComponent: 1, // Component ID of the drone
-//		Command:         common.MAV_CMD_DO_SET_MODE,
+//		Command:         common.MAV_CMD_DO_REPOSITION,
 //		Param1:          float32(common.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
 //		Param2:          4, // Example custom mode (HOLD in PX4)
 //	}
@@ -347,12 +347,15 @@ func resetTimer(t *time.Timer, d time.Duration) {
 //		return err
 //	}
 func (s *DroneAPI) OverrideMissionAndHover(ctx context.Context, command *common.MessageCommandLong) error {
-	if command.Command != common.MAV_CMD_DO_REPOSITION && command.Command != common.MAV_CMD_NAV_LOITER_UNLIM {
+	var correctCommand bool
+	if command.Command == common.MAV_CMD_DO_REPOSITION {
+		correctCommand = true
+	} else if !correctCommand && command.Command != common.MAV_CMD_NAV_LOITER_UNLIM {
 		return fmt.Errorf("invalid command ID %d", command.Command)
 	}
 
 	// Use a ticker for retries. MAVLink commands often need 2-3 tries on noisy links.
-	retryTicker := time.NewTicker(1 * time.Second)
+	retryTicker := time.NewTicker(10 * time.Second)
 	defer retryTicker.Stop()
 
 	// Initial send

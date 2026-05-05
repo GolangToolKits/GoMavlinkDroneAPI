@@ -114,7 +114,7 @@ func (s *DroneAPI) ConnectCustomServer(listenAddress string, outVersion gomavlib
 
 // IsDroneConnected checks to see if drone is connected
 func (s *DroneAPI) IsDroneConnected(ctx context.Context) (bool, error) {
-	log.Println("Checking for drone heartbeat...")
+	log.Println("Checking for drone heartbeat in IsDroneConnected...")
 
 	for {
 		select {

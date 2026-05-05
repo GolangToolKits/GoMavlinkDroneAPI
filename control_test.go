@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
 	"github.com/bluenviron/gomavlib/v3"
@@ -155,6 +156,8 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			// 	return
 			// }
 
+			time.Sleep(20 * time.Second)
+
 			tkoffErr := s.Takeoff(ctx, tt.altitude, tt.targetSystem, tt.targetComponent)
 			if tkoffErr != nil {
 				if !tt.wantErr {
@@ -163,6 +166,8 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				return
 			}
 
+			time.Sleep(20 * time.Second)
+
 			movErr := s.Move(tt.targetSystem, tt.targetComponent, tt.moveMessage)
 			if movErr != nil {
 				if !tt.wantErr {
@@ -170,6 +175,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				}
 				return
 			}
+			time.Sleep(60 * time.Second)
 
 			if tt.returnToHome {
 				homeErr := s.ReturnHome(ctx, tt.targetSystem, tt.targetComponent)
@@ -188,6 +194,8 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 					return
 				}
 			}
+
+			time.Sleep(60 * time.Second)
 
 			disarmErr := s.ArmDisarm(ctx, tt.disarmCommand, tt.targetSystem, tt.targetComponent)
 			if disarmErr != nil {
