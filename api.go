@@ -50,6 +50,8 @@ type API interface {
 	//ArmDisarm(command float32, targetSystem uint8, targetComponent uint8) error
 	ArmDisarm(ctx context.Context, arm bool, targetSystem uint8, targetComponent uint8) error
 	// Takeoff(takeOffCommand *common.MessageCommandLong) error
+	// SetMode(targetSystem uint8, baseMode common.MAV_MODE, customMode uint32) error
+	SetMode(targetSystem uint8, targetComponent uint8, baseMode uint8, customMode uint32) error
 	Takeoff(ctx context.Context, altitude float32, targetSystem uint8, targetComponent uint8) error
 	// Land(landCommand *common.MessageCommandLong) error
 	Land(ctx context.Context, targetSystem uint8, targetComponent uint8) error

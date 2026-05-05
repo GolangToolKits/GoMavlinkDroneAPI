@@ -26,21 +26,38 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 		checkConnect bool
 		checkArm     bool
 		wantErr      bool
+		altitude     float32
+		moveMessage  *common.MessageSetPositionTargetLocalNed
 	}{
 		// TODO: Add test cases.
 		{
 			name:          "test 1",
-			clientAddress: "1.2.3.4:5600",
+			clientAddress: "127.0.0.1:5760",
 			outVersion:    gomavlib.V2,
-			outSystemID:   10,
+			outSystemID:   255,
 			// commands
-			checkConnect:    false,
+			checkConnect:    true,
 			armCommand:      true,
 			checkArm:        false,
-			disarmCommand:   true,
+			disarmCommand:   false,
 			targetSystem:    1,
 			targetComponent: 1,
 			wantErr:         false,
+			altitude:        1,
+			moveMessage: &common.MessageSetPositionTargetLocalNed{
+				TargetSystem:    1, // Usually 1 for the first drone
+				TargetComponent: 1, // Usually 1 for the main flight controller
+
+				// MAV_FRAME_BODY_OFFSET_NED means directions are relative to the drone's nose
+				CoordinateFrame: common.MAV_FRAME_BODY_OFFSET_NED,
+
+				// 3527 = Ignore position & acceleration. ONLY look at velocity and yaw rate.
+				TypeMask: 3527,
+
+				Vx: 1.0, // Move Forward at 2.0 meters per second
+				Vy: 0.0, // Do not strafe (Right)
+				Vz: 0.0, // Do not change altitude (Down)
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -48,13 +65,27 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			// TODO: construct the receiver type.
 			var ss gomavlinkdroneapi.DroneAPI
 			s := ss.New()
-			gotContErr := s.ConnectUDPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
-			if gotContErr != nil {
+			// gotContErr := s.ConnectUDPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			// if gotContErr != nil {
+			// 	if !tt.wantErr {
+			// 		t.Errorf("ConnectUDPClient() failed: %v", gotContErr)
+			// 	}
+			// 	return
+			// }
+			gotErr := s.ConnectTCPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			if gotErr != nil {
 				if !tt.wantErr {
-					t.Errorf("ConnectUDPClient() failed: %v", gotContErr)
+					t.Errorf("ConnectTCPClient() failed: %v", gotErr)
 				}
 				return
 			}
+			// gotErr := s.ConnectTCPServer(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			// if gotErr != nil {
+			// 	if !tt.wantErr {
+			// 		t.Errorf("ConnectTCPClient() failed: %v", gotErr)
+			// 	}
+			// 	return
+			// }
 			if tt.checkConnect {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -63,8 +94,17 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 					fmt.Print(err)
 					t.Fatal("ConnectSerial() succeeded not connected")
 				}
+				//return
+			}
+
+			modeErr := s.SetMode(tt.targetSystem, tt.targetComponent, 1, 4)
+			if modeErr != nil {
+				if !tt.wantErr {
+					t.Errorf("SetMode() failed: %v", modeErr)
+				}
 				return
 			}
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			armErr := s.ArmDisarm(ctx, tt.armCommand, tt.targetSystem, tt.targetComponent)
@@ -81,6 +121,30 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			// 	}
 			// 	return
 			// }
+
+			tkoffErr := s.Takeoff(ctx, tt.altitude, tt.targetSystem, tt.targetComponent)
+			if tkoffErr != nil {
+				if !tt.wantErr {
+					t.Errorf("Takeoff() failed: %v", tkoffErr)
+				}
+				return
+			}
+
+			movErr := s.Move(tt.targetSystem, tt.targetComponent, tt.moveMessage)
+			if movErr != nil {
+				if !tt.wantErr {
+					t.Errorf("Move() failed: %v", movErr)
+				}
+				return
+			}
+
+			lndErr := s.Land(ctx, tt.targetSystem, tt.targetComponent)
+			if lndErr != nil {
+				if !tt.wantErr {
+					t.Errorf("Land() failed: %v", lndErr)
+				}
+				return
+			}
 
 			disarmErr := s.ArmDisarm(ctx, tt.disarmCommand, tt.targetSystem, tt.targetComponent)
 			if disarmErr != nil {

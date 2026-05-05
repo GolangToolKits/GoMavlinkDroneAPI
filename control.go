@@ -17,6 +17,9 @@ func (s *DroneAPI) ArmDisarm(ctx context.Context, arm bool, targetSystem uint8, 
 	if arm {
 		param1 = 1 // Arm
 		action = "Arm"
+	} else {
+		param1 = 0 // Disarm
+		action = "Disarm"
 	}
 
 	armCmd := &common.MessageCommandLong{
@@ -68,6 +71,22 @@ func (s *DroneAPI) ArmDisarm(ctx context.Context, arm bool, targetSystem uint8, 
 			}
 		}
 	}
+}
+
+func (s *DroneAPI) SetMode(targetSystem uint8, targetComponent uint8, baseMode uint8, customMode uint32) error {
+	// MAV_MODE_FLAG_CUSTOM_MODE_ENABLED (1) tells the drone to use the CustomMode field
+	// const modeFlagCustom uint8 = 1
+
+	cmd := &common.MessageCommandLong{
+		TargetSystem: targetSystem,
+		//
+		TargetComponent: targetComponent, // Usually 1 for the autopilot
+		Command:         common.MAV_CMD_DO_SET_MODE,
+		Param1:          float32(baseMode),   //1
+		Param2:          float32(customMode), //4
+	}
+
+	return s.drone.node.WriteMessageAll(cmd)
 }
 
 // Takeoff sends takeoff

@@ -2,6 +2,7 @@ package gomavlinkdroneapi_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	gomavlinkdroneapi "github.com/GolangToolKits/GoMavlinkDroneAPI"
@@ -21,9 +22,9 @@ func TestDroneAPI_ConnectSerial(t *testing.T) {
 		// TODO: Add test cases.
 		{
 			name:         "test 1",
-			serialDevice: "/dev/ttyUSB0",
+			serialDevice: "/dev/ttyS0",
 			baud:         57600,
-			outSystemID:  10,
+			outSystemID:  1,
 			wantErr:      false,
 		},
 	}
@@ -41,6 +42,14 @@ func TestDroneAPI_ConnectSerial(t *testing.T) {
 					t.Fatal("ConnectSerial() succeeded not connected")
 				}
 			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			con, err := s.IsDroneConnected(ctx)
+			if !con {
+				fmt.Print(err)
+				t.Fatal("ConnectSerial() succeeded not connected")
+			}
+			//return
 
 			if gotErr != nil {
 				if !tt.wantErr {
