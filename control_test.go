@@ -97,7 +97,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				//return
 			}
 
-			modeErr := s.SetMode(tt.targetSystem, tt.targetComponent, 1, 4)
+			modeErr := s.SetMode(tt.targetSystem, tt.targetComponent, gomavlinkdroneapi.MODE_CUSTOM, gomavlinkdroneapi.MODE_GUIDED)
 			if modeErr != nil {
 				if !tt.wantErr {
 					t.Errorf("SetMode() failed: %v", modeErr)

@@ -74,9 +74,6 @@ func (s *DroneAPI) ArmDisarm(ctx context.Context, arm bool, targetSystem uint8, 
 }
 
 func (s *DroneAPI) SetMode(targetSystem uint8, targetComponent uint8, baseMode uint8, customMode uint32) error {
-	// MAV_MODE_FLAG_CUSTOM_MODE_ENABLED (1) tells the drone to use the CustomMode field
-	// const modeFlagCustom uint8 = 1
-
 	cmd := &common.MessageCommandLong{
 		TargetSystem: targetSystem,
 		//
