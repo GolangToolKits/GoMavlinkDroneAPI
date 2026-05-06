@@ -63,7 +63,8 @@ type API interface {
 
 	// ClearGeofence(targetSystem uint8, targetComponent uint8) bool
 	ClearGeofence(ctx context.Context, targetSystem uint8, targetComponent uint8) bool
-	UploadGeofence(ctx context.Context, newFence []GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
+	// UploadGeofence(ctx context.Context, newFence []GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
+	UploadGeofence(ctx context.Context, fenceItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) (bool, error)
 	// UploadGeofence(newFence *[]GeoFence, targetSystem uint8, targetComponent uint8) (bool, error)
 }
 

@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/bluenviron/gomavlib/v3"
+	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/common"
 )
 
@@ -69,14 +70,18 @@ func (s *DroneAPI) ClearGeofence(ctx context.Context, targetSystem uint8, target
 //					{Lat: 473987418, Lon: 85465939},
 //					{Lat: 473987418, Lon: 85455939},
 //				},
-func (s *DroneAPI) UploadGeofence(ctx context.Context, newFence []GeoFence, targetSystem uint8, targetComponent uint8) (bool, error) {
-	log.Printf("Starting fence upload (%d points)...", len(newFence))
+func (s *DroneAPI) UploadGeofence(ctx context.Context, fenceItems []ardupilotmega.MessageMissionItemInt, targetSystem uint8, targetComponent uint8) (bool, error) {
+	log.Printf("Starting fence upload (%d points)...", len(fenceItems))
+	// CRITICAL: Ensure Seq 0 is marked as 'Current' for ArduPilot's state machine
+	if len(fenceItems) > 0 {
+		fenceItems[0].Current = 1
+	}
 
-	// 1. Send the count to initiate the transaction
-	s.drone.node.WriteMessageAll(&common.MessageMissionCount{
+	// 1. Initiate transaction using ardupilotmega type
+	s.drone.node.WriteMessageAll(&ardupilotmega.MessageMissionCount{
 		TargetSystem:    targetSystem,
 		TargetComponent: targetComponent,
-		Count:           uint16(len(newFence)),
+		Count:           uint16(len(fenceItems)),
 		MissionType:     common.MAV_MISSION_TYPE_FENCE,
 	})
 
@@ -91,43 +96,53 @@ func (s *DroneAPI) UploadGeofence(ctx context.Context, newFence []GeoFence, targ
 
 			frm, ok := evt.(*gomavlib.EventFrame)
 			if !ok || frm.SystemID() != targetSystem {
-				continue // Ignore messages from other systems
+				continue
 			}
 
 			switch msg := frm.Message().(type) {
 
-			case *common.MessageMissionRequestInt:
+			// 2. Catch the ardupilotmega request (this fixes the "Cancelled" timeout)
+			case *ardupilotmega.MessageMissionRequestInt:
 				if msg.MissionType != common.MAV_MISSION_TYPE_FENCE {
 					continue
 				}
-				if int(msg.Seq) >= len(newFence) {
-					return false, fmt.Errorf("drone requested out-of-bounds index: %d", msg.Seq)
+
+				seq := int(msg.Seq)
+				if seq >= len(fenceItems) {
+					return false, fmt.Errorf("out-of-bounds: %d", seq)
 				}
 
-				// 2. Upload the specific requested point
-				log.Printf("Uploading point #%d", msg.Seq)
-				s.drone.node.WriteMessageAll(&common.MessageMissionItemInt{
-					TargetSystem:    targetSystem,
-					TargetComponent: targetComponent,
-					Seq:             msg.Seq,
-					Frame:           common.MAV_FRAME_GLOBAL,
-					Command:         common.MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION,
-					Param1:          float32(len(newFence)), // Total vertices
-					X:               newFence[msg.Seq].Lat,
-					Y:               newFence[msg.Seq].Lon,
-					MissionType:     common.MAV_MISSION_TYPE_FENCE,
-				})
+				// 3. Send the item from your ardupilotmega slice
+				item := fenceItems[seq]
+				item.TargetSystem = targetSystem
+				item.TargetComponent = targetComponent
+				// MissionType is already set in your slice but we'll be safe:
+				item.MissionType = common.MAV_MISSION_TYPE_FENCE
 
-			case *common.MessageMissionAck:
+				log.Printf("Uploading point #%d", item.Seq)
+				s.drone.node.WriteMessageAll(&item)
+
+			// 4. Catch the ardupilotmega acknowledgement
+			case *ardupilotmega.MessageMissionAck:
 				if msg.MissionType != common.MAV_MISSION_TYPE_FENCE {
 					continue
 				}
 				if msg.Type == common.MAV_MISSION_ACCEPTED {
-					log.Println("Geofence upload complete and accepted.")
+					log.Println("Geofence accepted.")
 					return true, nil
 				}
-				return false, fmt.Errorf("mission rejected with code: %v", msg.Type)
+				return false, fmt.Errorf("rejected with code: %v", msg.Type)
 			}
 		}
 	}
+}
+
+func (s *DroneAPI) EnableGeofence(targetSystem uint8, targetComponent uint8) error {
+	return s.drone.node.WriteMessageAll(&ardupilotmega.MessageCommandLong{
+		TargetSystem:    targetSystem,
+		TargetComponent: targetComponent,
+		Command:         common.MAV_CMD_DO_FENCE_ENABLE,
+		Param1:          1, // 1 to Enable, 0 to Disable
+		Confirmation:    1,
+	})
 }
