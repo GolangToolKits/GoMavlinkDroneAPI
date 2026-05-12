@@ -212,6 +212,220 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 	}
 }
 
+func TestDroneAPI_ArmDisarmTakeOffLandPirrot(t *testing.T) {
+	tests := []struct {
+		name string // description of this test case
+		//imputs for UDPClient node
+		clientAddress string
+		outVersion    gomavlib.Version
+		outSystemID   byte
+		// Named input parameters for target function.
+		armCommand      bool
+		disarmCommand   bool
+		targetSystem    uint8
+		targetComponent uint8
+
+		checkConnect bool
+		checkArm     bool
+		wantErr      bool
+		altitude     float32
+		returnToHome bool
+		moveMessage  *common.MessageSetPositionTargetLocalNed
+	}{
+		// TODO: Add test cases.
+		{
+			name: "test 1",
+			// clientAddress: "127.0.0.1:5760",
+			// clientAddress: "192.168.42.1:14550",
+			// clientAddress: "0.0.0.0:14550",
+			clientAddress: ":14550",
+			outVersion:    gomavlib.V2,
+			outSystemID:   10,
+			// commands
+			checkConnect:    true,
+			armCommand:      true,
+			checkArm:        false,
+			disarmCommand:   false,
+			targetSystem:    1,
+			targetComponent: 1,
+			wantErr:         false,
+			altitude:        1,
+			returnToHome:    false,
+			moveMessage: &common.MessageSetPositionTargetLocalNed{
+				TargetSystem:    1, // Usually 1 for the first drone
+				TargetComponent: 1, // Usually 1 for the main flight controller
+
+				// MAV_FRAME_BODY_OFFSET_NED means directions are relative to the drone's nose
+				CoordinateFrame: common.MAV_FRAME_BODY_OFFSET_NED,
+
+				// 3527 = Ignore position & acceleration. ONLY look at velocity and yaw rate.
+				TypeMask: 3527,
+
+				Vx: 1.0, // Move Forward at 2.0 meters per second
+				Vy: 0.0, // Do not strafe (Right)
+				Vz: 0.0, // Do not change altitude (Down)
+			},
+		},
+		{
+			name: "test 2",
+			// clientAddress: "127.0.0.1:5760",
+			clientAddress: "192.168.42.1:14550",
+			outVersion:    gomavlib.V2,
+			outSystemID:   255,
+			// commands
+			checkConnect:    true,
+			armCommand:      true,
+			checkArm:        false,
+			disarmCommand:   false,
+			targetSystem:    1,
+			targetComponent: 1,
+			wantErr:         false,
+			altitude:        1,
+			returnToHome:    true,
+			moveMessage: &common.MessageSetPositionTargetLocalNed{
+				TargetSystem:    1, // Usually 1 for the first drone
+				TargetComponent: 1, // Usually 1 for the main flight controller
+
+				// MAV_FRAME_BODY_OFFSET_NED means directions are relative to the drone's nose
+				CoordinateFrame: common.MAV_FRAME_BODY_OFFSET_NED,
+
+				// 3527 = Ignore position & acceleration. ONLY look at velocity and yaw rate.
+				TypeMask: 3527,
+
+				Vx: 1.0, // Move Forward at 2.0 meters per second
+				Vy: 0.0, // Do not strafe (Right)
+				Vz: 0.0, // Do not change altitude (Down)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// TODO: construct the receiver type.
+			fmt.Printf("Running test: %s\n", tt.name)
+			var ss gomavlinkdroneapi.DroneAPI
+			s := ss.New()
+			// gotContErr := s.ConnectUDPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			// if gotContErr != nil {
+			// 	if !tt.wantErr {
+			// 		t.Errorf("ConnectUDPClient() failed: %v", gotContErr)
+			// 	}
+			// 	return
+			// }
+			gotContErr := s.ConnectUDPServer(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			if gotContErr != nil {
+				if !tt.wantErr {
+					t.Errorf("ConnectUDPClient() failed: %v", gotContErr)
+				}
+				return
+			}
+			// gotErr := s.ConnectTCPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			// if gotErr != nil {
+			// 	if !tt.wantErr {
+			// 		t.Errorf("ConnectTCPClient() failed: %v", gotErr)
+			// 	}
+			// 	return
+			// }
+			// gotErr := s.ConnectTCPServer(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			// if gotErr != nil {
+			// 	if !tt.wantErr {
+			// 		t.Errorf("ConnectTCPClient() failed: %v", gotErr)
+			// 	}
+			// 	return
+			// }
+			if tt.checkConnect {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				con, err := s.IsDroneConnected(ctx)
+				if !con {
+					fmt.Print(err)
+					t.Fatal("ConnectSerial() succeeded not connected")
+				}
+				//return
+			}
+
+			modeErr := s.SetMode(tt.targetSystem, tt.targetComponent, gomavlinkdroneapi.MODE_CUSTOM, gomavlinkdroneapi.MODE_GUIDED)
+			if modeErr != nil {
+				if !tt.wantErr {
+					t.Errorf("SetMode() failed: %v", modeErr)
+				}
+				return
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			armErr := s.ArmDisarm(ctx, tt.armCommand, tt.targetSystem, tt.targetComponent)
+			if armErr != nil {
+				if !tt.wantErr {
+					fmt.Println(armErr)
+					t.Errorf("ArmDisarm() failed: %v", armErr)
+				}
+				return
+			}
+			// if tt.checkArm {
+			// 	armed := s.AcknowledgeCommand(common.MAV_CMD_COMPONENT_ARM_DISARM)
+			// 	if !armed {
+			// 		t.Fatal("Arm() failed")
+			// 	}
+			// 	return
+			// }
+
+			time.Sleep(20 * time.Second)
+
+			tkoffErr := s.Takeoff(ctx, tt.altitude, tt.targetSystem, tt.targetComponent)
+			if tkoffErr != nil {
+				if !tt.wantErr {
+					t.Errorf("Takeoff() failed: %v", tkoffErr)
+				}
+				return
+			}
+
+			time.Sleep(20 * time.Second)
+
+			movErr := s.Move(tt.targetSystem, tt.targetComponent, tt.moveMessage)
+			if movErr != nil {
+				if !tt.wantErr {
+					t.Errorf("Move() failed: %v", movErr)
+				}
+				return
+			}
+			time.Sleep(60 * time.Second)
+
+			if tt.returnToHome {
+				homeErr := s.ReturnHome(ctx, tt.targetSystem, tt.targetComponent)
+				if homeErr != nil {
+					if !tt.wantErr {
+						t.Errorf("ReturnHome() failed: %v", homeErr)
+					}
+					return
+				}
+			} else {
+				lndErr := s.Land(ctx, tt.targetSystem, tt.targetComponent)
+				if lndErr != nil {
+					if !tt.wantErr {
+						t.Errorf("Land() failed: %v", lndErr)
+					}
+					return
+				}
+			}
+
+			time.Sleep(60 * time.Second)
+
+			disarmErr := s.ArmDisarm(ctx, tt.disarmCommand, tt.targetSystem, tt.targetComponent)
+			if disarmErr != nil {
+				if !tt.wantErr {
+					fmt.Println(disarmErr)
+					t.Errorf("ArmDisarm() failed: %v", disarmErr)
+				}
+				return
+			}
+			s.Close()
+			if tt.wantErr {
+				t.Fatal("ArmDisarm() succeeded unexpectedly")
+			}
+		})
+	}
+}
+
 func TestDroneAPI_Move(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
