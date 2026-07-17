@@ -16,6 +16,8 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 		name string // description of this test case
 		//imputs for UDPClient node
 		clientAddress string
+		serialDevice  string
+		baud          int
 		outVersion    gomavlib.Version
 		outSystemID   byte
 		// Named input parameters for target function.
@@ -35,6 +37,8 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 		{
 			name:          "test 1",
 			clientAddress: "127.0.0.1:5760",
+			serialDevice:  "/dev/ttyUSB0",
+			baud:          57600,
 			outVersion:    gomavlib.V2,
 			outSystemID:   255,
 			// commands
@@ -45,7 +49,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			targetSystem:    1,
 			targetComponent: 1,
 			wantErr:         false,
-			altitude:        1,
+			altitude:        3,
 			returnToHome:    false,
 			moveMessage: &common.MessageSetPositionTargetLocalNed{
 				TargetSystem:    1, // Usually 1 for the first drone
@@ -65,6 +69,8 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 		{
 			name:          "test 2",
 			clientAddress: "127.0.0.1:5760",
+			serialDevice:  "/dev/ttyUSB0",
+			baud:          57600,
 			outVersion:    gomavlib.V2,
 			outSystemID:   255,
 			// commands
@@ -75,7 +81,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			targetSystem:    1,
 			targetComponent: 1,
 			wantErr:         false,
-			altitude:        1,
+			altitude:        2.5,
 			returnToHome:    true,
 			moveMessage: &common.MessageSetPositionTargetLocalNed{
 				TargetSystem:    1, // Usually 1 for the first drone
@@ -106,7 +112,14 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			// 	}
 			// 	return
 			// }
-			gotErr := s.ConnectTCPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			// gotErr := s.ConnectTCPClient(tt.clientAddress, tt.outVersion, tt.outSystemID)
+			// if gotErr != nil {
+			// 	if !tt.wantErr {
+			// 		t.Errorf("ConnectTCPClient() failed: %v", gotErr)
+			// 	}
+			// 	return
+			// }
+			gotErr := s.ConnectSerial(tt.serialDevice, tt.baud, tt.outSystemID)
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ConnectTCPClient() failed: %v", gotErr)
@@ -131,13 +144,13 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 				//return
 			}
 
-			modeErr := s.SetMode(tt.targetSystem, tt.targetComponent, gomavlinkdroneapi.MODE_CUSTOM, gomavlinkdroneapi.MODE_GUIDED)
-			if modeErr != nil {
-				if !tt.wantErr {
-					t.Errorf("SetMode() failed: %v", modeErr)
-				}
-				return
-			}
+			// modeErr := s.SetMode(tt.targetSystem, tt.targetComponent, gomavlinkdroneapi.MODE_CUSTOM, gomavlinkdroneapi.MODE_GUIDED)
+			// if modeErr != nil {
+			// 	if !tt.wantErr {
+			// 		t.Errorf("SetMode() failed: %v", modeErr)
+			// 	}
+			// 	return
+			// }
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -145,6 +158,14 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			if armErr != nil {
 				if !tt.wantErr {
 					t.Errorf("ArmDisarm() failed: %v", armErr)
+				}
+				return
+			}
+
+			modeErr := s.SetMode(tt.targetSystem, tt.targetComponent, gomavlinkdroneapi.MODE_CUSTOM, gomavlinkdroneapi.MODE_GUIDED)
+			if modeErr != nil {
+				if !tt.wantErr {
+					t.Errorf("SetMode() failed: %v", modeErr)
 				}
 				return
 			}
@@ -156,7 +177,7 @@ func TestDroneAPI_ArmDisarmTakeOffLand(t *testing.T) {
 			// 	return
 			// }
 
-			time.Sleep(20 * time.Second)
+			// time.Sleep(1 * time.Second)
 
 			tkoffErr := s.Takeoff(ctx, tt.altitude, tt.targetSystem, tt.targetComponent)
 			if tkoffErr != nil {

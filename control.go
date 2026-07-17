@@ -62,10 +62,13 @@ func (s *DroneAPI) ArmDisarm(ctx context.Context, arm bool, targetSystem uint8, 
 					log.Printf("Success: Vehicle %sed!", action)
 					return nil
 				case common.MAV_RESULT_TEMPORARILY_REJECTED:
+					log.Printf("Rejected: Vehicle %sed!", action)
 					return errors.New("arm rejected: pre-arm checks failed (check GPS/Battery)")
 				case common.MAV_RESULT_DENIED:
+					log.Printf("Denied: Vehicle %sed!", action)
 					return errors.New("arm denied: check safety switch or flight mode")
 				default:
+					log.Printf("Failed: Vehicle %sed!", action)
 					return fmt.Errorf("arm failed with result code: %v", msg.Result)
 				}
 			}
@@ -139,11 +142,14 @@ func (s *DroneAPI) Takeoff(ctx context.Context, altitude float32, targetSystem u
 					log.Println("Takeoff accepted! Climbing...")
 					return nil
 				case common.MAV_RESULT_TEMPORARILY_REJECTED:
+					log.Printf("Takeoff rejected: result code %v", msg.Result)
 					return errors.New("takeoff rejected: is the drone armed and in GUIDED mode?")
 				case common.MAV_RESULT_DENIED:
+					log.Printf("Takeoff denied: result code %v", msg.Result)
 					return errors.New("takeoff denied: check safety limits or RC position")
 				default:
-					return fmt.Errorf("takeoff failed: result code %v", msg.Result)
+					log.Printf("Takeoff failed: result code %v", msg.Result)
+					return errors.New("takeoff failed")
 				}
 			}
 		}
